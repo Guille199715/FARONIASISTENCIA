@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Asistencia del equipo | Faroni</title>
+  <link rel="icon" href="assets/faroni.jpg">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="equipo.js"></script>
+</head>
+<body>
+  <main id="team-access" class="access">
+    <div class="access-brand">
+      <div class="brand"><img src="assets/faroni.jpg" alt="" width="64" height="64"><div><strong>Faroni</strong><span>Metalúrgica Tecnológica</span></div></div>
+      <p>Portal de asistencia</p>
+    </div>
+    <div class="access-content">
+      <h1>Iniciar sesión</h1>
+      <form id="team-access-form" class="entry-form">
+        <label for="team-user">DNI del empleado o correo del empleador</label>
+        <input id="team-user" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        <label for="team-password">Contraseña</label>
+        <input id="team-password" type="password" autocomplete="current-password" required>
+        <p id="team-access-message" class="form-error" role="status">Conectando con el portal…</p>
+        <button id="team-enter" class="punch" type="submit" disabled>Ingresar</button>
+      </form>
+    </div>
+  </main>
+
+  <div id="team-workspace" class="workspace shared-workspace" hidden>
+    <header class="topbar">
+      <div class="brand"><img src="assets/faroni.jpg" alt="" width="40" height="40"><div><strong>Faroni</strong><span id="team-identity"></span></div></div>
+      <button id="team-sign-out" class="sign-out" type="button">Salir</button>
+    </header>
+    <main>
+      <div class="intro"><h1 id="team-heading" tabindex="-1"></h1></div>
+      <p id="team-message" class="field-hint" role="status" hidden></p>
+      <section id="employee-jornada" class="card day-card" hidden>
+        <h2>Fichadas de hoy</h2>
+        <p id="attendance-today" class="field-hint"></p>
+        <div class="day-marks">
+          <div><span>Entrada</span><strong id="attendance-in">—</strong></div>
+          <div><span>Salida</span><strong id="attendance-out">—</strong></div>
+        </div>
+        <div class="entry-form">
+          <button id="record-punch" class="punch" type="button" disabled>Marcar entrada</button>
+        </div>
+      </section>
+      <section id="employer-attendance" class="card day-card" hidden>
+        <div class="entry-form">
+          <label for="attendance-date">Fecha de asistencia</label>
+          <input id="attendance-date" type="date" required>
+        </div>
+        <ul id="attendance-team" class="record-list"></ul>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="team-punch-dialog" class="punch-dialog" aria-labelledby="team-punch-title">
+    <h2 id="team-punch-title"></h2>
+    <p>La fichada se guardará con la hora registrada por Firebase.</p>
+    <form id="team-punch-form" class="punch-dialog-actions" method="dialog">
+      <button class="report-button" value="cancel" autofocus>Cancelar</button>
+      <button class="punch" value="confirm">Confirmar</button>
+    </form>
+  </dialog>
+</body>
+</html>

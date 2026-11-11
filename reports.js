@@ -76,7 +76,6 @@ function renderWorkerAssignment(now = new Date()) {
   const profile = readReportSetting(workerProfilesKey, {})[account.username];
   const schedule = profile?.schedule ?? readReportSetting(reportSettingsKey, defaultSchedule);
   const source = profile?.schedule ? 'Horario propio' : 'Horario general';
-  const position = profile?.position ? `${profile.position} · ` : '';
   const day = plantDay(now);
   const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
   const { start, end } = schedule.overrides?.[weekday] ?? schedule;
@@ -84,7 +83,18 @@ function renderWorkerAssignment(now = new Date()) {
   date.dateTime = day;
   date.textContent = longDateFormat.format(now);
   const hours = schedule.days.includes(weekday) ? `${start} a ${end} · ${source}` : 'Día sin horario asignado';
-  get('worker-assignment').textContent = `${position}${hours}`;
+  get('worker-assignment').textContent = hours;
+}
+
+function renderEmployeeProfile() {
+  const profile = readReportSetting(workerProfilesKey, {})[account.username];
+  const schedule = profile?.schedule ?? readReportSetting(reportSettingsKey, defaultSchedule);
+  const source = profile?.schedule ? 'Horario propio' : 'Horario general';
+  get('employee-profile-name').textContent = account.name;
+  get('employee-profile-detail').textContent = [account.detail, profile?.position].filter(Boolean).join(' · ');
+  get('employee-profile-schedule').textContent = `${source} · ${describeSchedule(schedule)}`;
+  recordList(get('history-list'), loadMarks(account.username));
+  renderEmployeeCorrections();
 }
 
 function updateScheduleGroupLabels() {
@@ -194,6 +204,8 @@ function attendanceDay({ day, worker, marksForDay, absence, closure, scheduled, 
   const entry = marksForDay.find(({ type }) => type === 'in');
   const exit = marksForDay.findLast(({ type }) => type === 'out');
   const notes = [];
+  if (marksForDay.some((mark) => mark.correctionId && !mark.manual)) notes.push('Incluye una corrección aprobada');
+  if (marksForDay.some((mark) => mark.manual)) notes.push('Incluye un ajuste manual');
   let status;
   if (absence) {
     notes.push(`Aviso: ${absenceReasons.get(absence.reason)}${absence.certificate ? ' · Certificado presentado' : ''}`);
@@ -241,7 +253,7 @@ function buildAttendanceReport(days, workerId, now = new Date()) {
   for (const worker of staff) {
     const { schedule } = worker;
     const marksByDate = new Map();
-    const marks = worker.entry ? [] : loadMarks(worker.id);
+    const marks = loadMarks(worker.id, now);
     let coverage = worker.createdOn || (worker.entry ? previousDay(today, 3) : today);
     for (const mark of marks) {
       const day = plantDay(new Date(mark.at));
@@ -254,9 +266,7 @@ function buildAttendanceReport(days, workerId, now = new Date()) {
       const closure = closures.find((item) => item.from <= day && item.to >= day);
       const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
       const scheduled = schedule.days.includes(weekday) && ((worker.active && day >= coverage) || Boolean(absence));
-      const marksForDay = worker.entry && !absence && !closure
-        ? sampleShift(day, today, now, worker.entry, worker.openToday && day === today ? null : worker.exit)
-        : marksByDate.get(day) || [];
+      const marksForDay = worker.entry && closure ? (marksByDate.get(day) || []).filter((mark) => mark.correctionId) : marksByDate.get(day) || [];
       if (!scheduled && !marksForDay.length && !absence) continue;
       const sorted = marksForDay.slice().sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
       const daySchedule = schedule.overrides?.[weekday] ? { ...schedule, ...schedule.overrides[weekday] } : schedule;
@@ -266,7 +276,7 @@ function buildAttendanceReport(days, workerId, now = new Date()) {
     }
   }
   rows.sort((a, b) => a.day.localeCompare(b.day) || a.worker.name.localeCompare(b.worker.name, 'es-AR'));
-  return { from, to, workerId, scope: workerId ? staff[0]?.name : 'Todos los operarios', generalSchedule, staff, rows, totals, closures };
+  return { from, to, workerId, scope: workerId ? staff[0]?.name : 'Todo el personal', generalSchedule, staff, rows, totals, closures };
 }
 
 function reportScheduleLine(report) {
@@ -289,7 +299,7 @@ function renderAttendanceReport() {
   const { from, to, scope, totals, rows, closures } = displayedReport;
   get('attendance-period').textContent = `${reportDate(from)} al ${reportDate(to)} · ${scope}`;
   get('attendance-schedule').textContent = reportScheduleLine(displayedReport);
-  get('attendance-notice').textContent = 'Cada indicador cuenta un día por operario. Las faltas se computan al terminar el horario previsto.';
+  get('attendance-notice').textContent = 'Cada indicador cuenta un día por empleado. Las faltas se computan al terminar el horario previsto.';
   get('attendance-empty').hidden = rows.length > 0;
   get('export-attendance-xlsx').disabled = false;
   get('export-attendance-pdf').disabled = false;
@@ -342,18 +352,23 @@ function openAttendanceReport() {
   if (!get('report-month').value) get('report-month').value = month;
   if (!get('report-from').value) get('report-from').value = `${month}-01`;
   if (!get('report-to').value) get('report-to').value = today;
-  if (!get('closure-from').value) get('closure-from').value = today;
-  if (!get('closure-to').value) get('closure-to').value = today;
   const workers = get('report-worker');
   const selected = workers.value;
   const options = staffDirectory().map((worker) => new Option(`${worker.name} · ${worker.label}`, worker.id));
-  workers.replaceChildren(new Option('Todos los operarios', ''), ...options);
+  workers.replaceChildren(new Option('Todo el personal', ''), ...options);
   workers.value = options.some((option) => option.value === selected) ? selected : '';
+  updatePeriodFields();
+  renderAttendanceReport();
+}
+
+function renderFactorySchedule() {
   const schedule = readReportSetting(reportSettingsKey, defaultSchedule);
   get('factory-schedule-summary').textContent = describeSchedule(schedule);
-  updatePeriodFields();
+}
+
+function openFactoryCalendar() {
+  if (!get('closure-from').value) setClosureForm();
   renderFactoryCalendar();
-  renderAttendanceReport();
 }
 
 function closureRow(closure, editable) {
@@ -402,6 +417,7 @@ function closureRow(closure, editable) {
 function renderFactoryCalendar() {
   const calendar = readReportSetting(factoryCalendarKey, []);
   calendar.sort((a, b) => b.from.localeCompare(a.from));
+  get('calendar-empty').hidden = calendar.length > 0;
   get('closure-list').replaceChildren(...calendar.map((closure) => closureRow(closure, true)));
 }
 
@@ -424,15 +440,11 @@ get('report-filters').addEventListener('submit', (event) => {
 });
 get('report-period').addEventListener('change', updatePeriodFields);
 get('report-filters').addEventListener('change', renderAttendanceReport);
-document.querySelectorAll('[data-report-focus]').forEach((button) => {
-  button.addEventListener('click', () => get(button.dataset.reportFocus).focus());
-});
 get('closure-cancel').addEventListener('click', () => setClosureForm());
 get('closure-from').addEventListener('change', () => {
   if (get('closure-to').value < get('closure-from').value) get('closure-to').value = get('closure-from').value;
 });
 
-get('profile-shortcut').addEventListener('click', () => get('worker-list-title').focus());
 document.querySelectorAll('[data-open-factory-schedule]').forEach((button) => {
   button.addEventListener('click', () => openScheduleEditor());
 });
@@ -494,19 +506,18 @@ handleForm('schedule-editor-form', 'schedule-editor-error', () => {
     localStorage.setItem(workerProfilesKey, JSON.stringify(profiles));
     get('schedule-dialog').close();
     renderWorkers();
-    get('worker-list-title').focus();
-    showMessage('Perfil del operario guardado.');
+    get('workers-title').focus();
+    showMessage('Perfil del empleado guardado.');
   } else {
     localStorage.setItem(reportSettingsKey, JSON.stringify(schedule));
     get('schedule-dialog').close();
-    get('factory-schedule-summary').textContent = describeSchedule(schedule);
-    renderAttendanceReport();
+    renderFactorySchedule();
     showMessage('Horario general guardado.');
   }
 });
 
 handleForm('closure-form', 'closure-error', () => {
-  if (account?.role !== 'employer' || get('reports').hidden) return;
+  if (account?.role !== 'employer' || get('calendar').hidden) return;
   const from = get('closure-from').value;
   const to = get('closure-to').value;
   const type = get('closure-type').value;
@@ -540,12 +551,12 @@ get('export-attendance-xlsx').addEventListener('click', () => {
   const { from, to, workerId, scope, staff, totals, rows, closures } = displayedReport;
   const sheets = [
     { name: 'Resumen', rows: [
-      ['Indicador', 'Cantidad de días por operario'],
+      ['Indicador', 'Cantidad de días por empleado'],
       ...Object.entries(reportIndicators).map(([status, label]) => [label, totals[status]]),
       [], ['Desde', from], ['Hasta', to], ['Alcance', scope], ['Horario de referencia', reportScheduleLine(displayedReport)],
     ] },
     { name: 'Detalle', rows: [
-      ['Fecha', 'Operario', 'DNI o legajo', 'Entrada', 'Salida', 'Indicador', 'Observación'],
+      ['Fecha', 'Empleado', 'DNI o legajo', 'Entrada', 'Salida', 'Indicador', 'Observación'],
       ...rows.map((row) => [row.day, row.worker.name, row.worker.label, row.entry, row.exit, reportIndicators[row.status], row.note]),
     ] },
     { name: 'Cierres', rows: [
@@ -553,7 +564,7 @@ get('export-attendance-xlsx').addEventListener('click', () => {
       ...closures.map((item) => [closureTypes[item.type], item.from, item.to, item.note]),
     ] },
     { name: 'Perfiles y horarios', rows: [
-      ['Operario', 'DNI o legajo', 'Puesto', 'Tipo de horario', 'Días laborables', 'Entrada prevista', 'Salida prevista', 'Tolerancia (min)'],
+      ['Empleado', 'DNI o legajo', 'Puesto', 'Tipo de horario', 'Días laborables', 'Entrada prevista', 'Salida prevista', 'Tolerancia (min)'],
       ...staff.flatMap((worker) => scheduleGroups(worker.schedule).map(({ days, start, end }) => [
         worker.name, worker.label, worker.position || '', worker.personalSchedule ? 'Propio' : 'General',
         days.map((day) => weekdayNames[day]).join(', '), start, end, worker.schedule.grace,

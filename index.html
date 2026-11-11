@@ -10,6 +10,7 @@
   <script src="app.js" defer></script>
   <script src="xlsx.js" defer></script>
   <script src="reports.js" defer></script>
+  <script src="corrections.js" defer></script>
 </head>
 <body>
   <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -22,15 +23,17 @@
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
     <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></symbol>
     <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2m2-16a3 3 0 0 1 0 6m4 10v-2a4 4 0 0 0-4-4"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 4v16h16M9 15v-3m5 3V8m5 7V5"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 10h18m-14 4h3m4 0h3m-10 3h3"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h4m4 0h8M4 17h8m4 0h4"/><circle cx="10" cy="7" r="2"/><circle cx="14" cy="17" r="2"/></symbol>
   </svg>
 
   <main id="access" class="access" aria-labelledby="access-title">
     <div class="access-brand">
       <div class="brand"><img src="assets/faroni.jpg" alt="" width="64" height="64"><div><strong>Faroni</strong><span>Metalúrgica Tecnológica</span></div></div>
-      <div><span class="eyebrow">ASISTENCIA LABORAL</span><p>Portal de asistencia</p><small>Un acceso para operarios y empleadores.</small></div>
+      <div><span class="eyebrow">ASISTENCIA LABORAL</span><p>Portal de asistencia</p></div>
     </div>
     <div id="sign-in-content" class="access-content">
-      <span class="demo-badge"><i></i> Demo</span>
       <h1 id="access-title" tabindex="-1">Iniciar sesión</h1>
       <p>Ingresá con tu cuenta para continuar.</p>
       <form id="access-form" class="entry-form">
@@ -41,19 +44,18 @@
         <p id="access-error" class="form-error" role="alert" hidden></p>
         <button type="submit" class="punch"><span>Ingresar</span><svg class="icon punch-arrow" aria-hidden="true"><use href="#i-arrow"/></svg></button>
       </form>
-      <div class="demo-access">
-        <p>Completá el formulario con una cuenta de prueba.</p>
-        <div><button type="button" data-demo-user="99999990">Operario</button><button type="button" data-demo-user="empleador">Empleador</button></div>
+      <div class="access-options" role="group" aria-label="Accesos">
+        <div><button type="button" data-demo-user="99999990">Empleado</button><button type="button" data-demo-user="empleador">Empleador</button></div>
       </div>
       <div class="section-links">
         <button id="activate-link" type="button" class="history-link">Activar mi cuenta <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button>
         <button id="forgot-password" type="button" class="history-link">Olvidé mi contraseña</button>
+        <a id="shared-access" href="equipo.html" class="history-link" hidden>Acceso a fichadas compartidas</a>
       </div>
     </div>
     <div id="activation-content" class="access-content" hidden>
-      <span class="demo-badge"><i></i> Demo</span>
       <h1 id="activation-title" tabindex="-1">Activar mi cuenta</h1>
-      <p id="credential-help">Ingresá el DNI ficticio y el código que te entregó el empleador.</p>
+      <p id="credential-help">Ingresá tu DNI y el código que te entregó el empleador.</p>
       <form id="activation-form" class="entry-form">
         <label for="activation-dni">DNI</label>
         <input id="activation-dni" inputmode="numeric" pattern="[0-9]{7,8}" maxlength="8" autocomplete="username" required>
@@ -79,72 +81,130 @@
     <nav aria-label="Navegación principal">
       <p class="rail-label">ASISTENCIA</p>
       <button type="button" class="nav-item" data-view="home" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg> Inicio</button>
-      <button type="button" class="nav-item" data-view="history"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg> Historial</button>
-      <button type="button" class="nav-item" data-view="team" hidden><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg> Asistencia</button>
-      <button type="button" class="nav-item" data-view="workers" hidden><svg class="icon" aria-hidden="true"><use href="#i-people"/></svg> Operarios</button>
-      <button type="button" class="nav-item" data-view="reports" hidden><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg> Informes</button>
+      <button type="button" class="nav-item" data-view="profile"><svg class="icon" aria-hidden="true"><use href="#i-people"/></svg> Mi perfil</button>
+      <button type="button" class="nav-item" data-view="menu" hidden><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg> Menú</button>
     </nav>
-    <div class="rail-note"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><div><strong>Modo demostración</strong><span>Usa datos ficticios.</span></div></div>
   </aside>
 
   <div id="workspace" class="workspace" hidden>
     <header class="topbar">
       <div class="mobile-brand brand"><img src="assets/faroni.jpg" alt="" width="40" height="40"><div><strong>Faroni</strong><span>Metalúrgica Tecnológica</span></div></div>
-      <p id="portal-label" class="portal-label">Portal del operario</p>
-      <div class="topbar-end"><span class="demo-badge"><i></i> Demo</span><div class="identity"><span id="identity-avatar" class="avatar" aria-hidden="true">OD</span><div><strong id="identity-name">Operario demo</strong><small id="identity-detail">Legajo 001</small></div></div><button id="sign-out" type="button" class="sign-out" aria-label="Cerrar sesión"><svg class="icon" aria-hidden="true"><use href="#i-out"/></svg><span>Salir</span></button></div>
+      <p id="portal-label" class="portal-label">Portal del personal</p>
+      <div class="topbar-end"><div class="identity"><span id="identity-avatar" class="avatar" aria-hidden="true"></span><div><strong id="identity-name"></strong><small id="identity-detail"></small></div></div><button id="sign-out" type="button" class="sign-out" aria-label="Cerrar sesión"><svg class="icon" aria-hidden="true"><use href="#i-out"/></svg><span>Salir</span></button></div>
     </header>
 
     <main>
+      <button id="employer-back" type="button" class="history-link employer-back" data-view="menu" hidden><svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg> Volver al menú</button>
+      <section id="menu" aria-labelledby="menu-title" hidden>
+        <div class="intro"><h1 id="menu-title" tabindex="-1">Menú del empleador</h1></div>
+        <div class="employer-menu">
+          <button type="button" class="card menu-tile" data-view="team"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg></span><strong>Asistencia</strong><small>Consultá las fichadas del equipo.</small></button>
+          <button type="button" class="card menu-tile" data-view="corrections"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></span><strong>Correcciones</strong><small>Revisá las solicitudes del personal.</small><span id="pending-corrections" class="pending-badge" hidden></span></button>
+          <button type="button" class="card menu-tile" data-view="workers"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-people"/></svg></span><strong>Personal</strong><small>Altas, perfiles y contraseñas.</small></button>
+          <button type="button" class="card menu-tile" data-view="absences"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span><strong>Ausencias</strong><small>Registrá avisos y certificados.</small></button>
+          <button type="button" class="card menu-tile" data-view="reports"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg></span><strong>Informes de asistencia</strong><small>Generá y exportá por período.</small></button>
+          <button type="button" class="card menu-tile" data-view="absence-summary"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg></span><strong>Resumen de ausencias</strong><small>Revisá los avisos del mes.</small></button>
+          <button type="button" class="card menu-tile" data-view="calendar"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg></span><strong>Calendario de fábrica</strong><small>Cargá feriados y cierres.</small></button>
+          <button type="button" class="card menu-tile" data-view="factory-hours"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></span><strong>Horario general</strong><small>Definí los horarios de fábrica.</small></button>
+          <button type="button" class="card menu-tile" data-view="home"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-wifi"/></svg></span><strong>Mi jornada</strong><small>Configurá la red de planta para fichar.</small></button>
+        </div>
+      </section>
       <section id="home" aria-labelledby="home-title">
-        <div class="intro"><span class="eyebrow">ASISTENCIA LABORAL</span><h1 id="home-title" tabindex="-1">Mi jornada</h1><p>Registrá tu entrada y salida desde el celular.</p><p class="field-hint"><time id="worker-assignment-date"></time><span id="worker-assignment"></span></p></div>
-        <div class="dashboard">
-          <section class="clock-card" aria-labelledby="clock-title">
+        <div class="intro"><span class="eyebrow">ASISTENCIA LABORAL</span><h1 id="home-title" tabindex="-1">Mi jornada</h1><div id="worker-day-intro"><p>Registrá tu entrada y salida desde el celular.</p><p class="field-hint"><time id="worker-assignment-date"></time><span id="worker-assignment"></span></p></div></div>
+        <div id="home-dashboard" class="dashboard">
+          <section id="worker-clock" class="clock-card" aria-labelledby="clock-title">
             <div class="clock-header"><h2 id="clock-title"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg> Hora de planta</h2><span id="shift-status" class="shift-badge"><i></i><span>Sin fichar</span></span></div>
             <div class="clock-readout"><time id="clock">--:--</time><p id="date"></p></div>
             <button type="button" id="punch" class="punch" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-in"/></svg><span>Marcar entrada</span><svg class="icon punch-arrow" aria-hidden="true"><use href="#i-arrow"/></svg></button>
-            <p id="punch-note" class="punch-note">Activá el Wi‑Fi simulado para fichar.</p>
+            <p id="punch-note" class="punch-note">Podés fichar desde cualquier conexión.</p>
           </section>
 
           <div class="details">
             <section class="card wifi-card" aria-labelledby="wifi-title">
-              <div class="card-heading"><span class="tile tile-wifi"><svg class="icon" aria-hidden="true"><use href="#i-wifi"/></svg></span><div><h2 id="wifi-title">Wi‑Fi de planta</h2><p>Starlink · Red simulada</p></div></div>
-              <div class="switch-row"><div><label id="wifi-label" for="wifi-toggle">Simular conexión</label><span id="wifi-status">Desconectado</span></div><button type="button" id="wifi-toggle" class="switch" role="switch" aria-checked="false" aria-labelledby="wifi-label" aria-describedby="wifi-status"><span></span></button></div>
+              <div class="card-heading"><span class="tile tile-wifi"><svg class="icon" aria-hidden="true"><use href="#i-wifi"/></svg></span><div><h2 id="wifi-title">Red de planta</h2><p>Conexión para el registro de asistencia</p></div></div>
+              <div class="switch-row"><div><strong id="wifi-label">Exigir red de planta</strong><span id="wifi-status" role="status">Fichaje sin restricción de red</span></div><button type="button" id="wifi-toggle" class="switch" role="switch" aria-checked="false" aria-labelledby="wifi-label" aria-describedby="wifi-status" hidden><span></span></button></div>
+              <div class="plant-connection-row">
+                <p id="plant-connection" class="plant-connection" role="status">Red de planta sin configurar</p>
+                <button id="check-plant-connection" class="report-button" type="button" aria-controls="plant-connection" hidden>Verificar red</button>
+              </div>
+              <form id="plant-network-form" class="entry-form" hidden>
+                <label for="plant-ip">IP pública de planta (IPv4)</label>
+                <input id="plant-ip" type="text" inputmode="decimal" maxlength="15" autocomplete="off" spellcheck="false" aria-describedby="plant-ip-help">
+                <p id="plant-ip-help" class="field-hint">Desde la red de planta, usá la IP actual. Si cambia, actualizala acá.</p>
+                <p id="plant-network-error" class="form-error" role="alert" hidden></p>
+                <div class="plant-network-actions"><button id="use-plant-ip" class="report-button" type="button">Usar IP actual</button><button class="punch" type="submit">Guardar IP</button></div>
+              </form>
             </section>
 
-            <section class="card day-card" aria-labelledby="day-title"><h2 id="day-title">Fichadas de hoy</h2><div class="day-marks"><div><span><svg class="icon" aria-hidden="true"><use href="#i-in"/></svg> Entrada</span><strong id="today-in">—</strong></div><div><span><svg class="icon" aria-hidden="true"><use href="#i-out"/></svg> Salida</span><strong id="today-out">—</strong></div></div></section>
+            <section id="worker-day-marks" class="card day-card" aria-labelledby="day-title"><h2 id="day-title">Fichadas de hoy</h2><div class="day-marks"><div><span><svg class="icon" aria-hidden="true"><use href="#i-in"/></svg> Entrada</span><strong id="today-in">—</strong></div><div><span><svg class="icon" aria-hidden="true"><use href="#i-out"/></svg> Salida</span><strong id="today-out">—</strong></div></div></section>
           </div>
         </div>
 
-        <section class="card records" aria-labelledby="recent-title">
-          <div class="records-heading"><div><h2 id="recent-title">Últimos registros</h2><p>Tus fichadas más recientes.</p></div><button type="button" class="history-link" data-view="history">Ver historial <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div>
-          <ul id="recent-list" class="record-list"></ul>
-        </section>
       </section>
 
-      <section id="history" aria-labelledby="history-title" hidden>
-        <div class="intro"><span class="eyebrow">ASISTENCIA LABORAL</span><h1 id="history-title" tabindex="-1">Historial</h1><p>Consultá las entradas y salidas de tu legajo.</p></div>
-        <section class="card records" aria-labelledby="records-title"><div class="records-heading"><div><h2 id="records-title">Todas las fichadas</h2><p>Registros de la demostración.</p></div></div><ul id="history-list" class="record-list"></ul></section>
+      <section id="profile" aria-labelledby="profile-title" hidden>
+        <div class="intro"><h1 id="profile-title" tabindex="-1">Mi perfil</h1></div>
+        <div class="card workers-card">
+          <h2 id="employee-profile-name"></h2>
+          <p id="employee-profile-detail" class="field-hint"></p>
+          <p id="employee-profile-schedule" class="field-hint"></p>
+        </div>
+        <details id="correction-details" class="card workers-card absence-layout">
+          <summary>Solicitar corrección</summary>
+          <form id="correction-form" class="entry-form">
+            <label for="correction-date">Fecha</label><input id="correction-date" type="date" required>
+            <label for="correction-mark">Fichada</label><select id="correction-mark" required></select>
+            <label for="correction-time">Hora correcta</label><input id="correction-time" type="time" required>
+            <label for="correction-reason">Motivo de la solicitud</label><textarea id="correction-reason" rows="3" maxlength="300" required></textarea>
+            <p id="correction-error" class="form-error" role="alert" hidden></p>
+            <button type="submit" class="punch">Enviar solicitud</button>
+          </form>
+        </details>
+        <section class="card records" aria-labelledby="employee-corrections-title"><div class="records-heading"><h2 id="employee-corrections-title">Mis solicitudes y ajustes</h2></div><p id="employee-corrections-empty" class="field-hint">Todavía no hay solicitudes ni ajustes.</p><ul id="employee-corrections" class="record-list"></ul></section>
+        <section class="card records" aria-labelledby="records-title"><div class="records-heading"><h2 id="records-title">Historial de asistencia</h2></div><ul id="history-list" class="record-list"></ul></section>
       </section>
+
+      <section id="corrections" aria-labelledby="corrections-title" hidden>
+        <div class="intro"><h1 id="corrections-title" tabindex="-1">Correcciones de asistencia</h1></div>
+        <section class="card workers-card" aria-labelledby="pending-title"><h2 id="pending-title">Solicitudes pendientes</h2><p id="pending-empty" class="field-hint">No hay solicitudes pendientes.</p><ul id="pending-correction-list" class="record-list"></ul></section>
+        <section class="card workers-card absence-layout" aria-labelledby="reviewed-title"><h2 id="reviewed-title">Historial de revisiones y ajustes</h2><p id="reviewed-empty" class="field-hint">Todavía no hay revisiones ni ajustes.</p><ul id="reviewed-correction-list" class="record-list"></ul></section>
+      </section>
+
+      <template id="correction-review-template">
+        <form class="entry-form correction-review-form">
+          <label>Motivo de la decisión <textarea name="decision-note" rows="2" maxlength="300" required></textarea></label>
+          <p class="form-error" role="alert" hidden></p>
+          <div class="section-links"><button type="submit" class="report-button" value="approved">Aprobar</button><button type="submit" class="report-button" value="rejected">Rechazar</button></div>
+        </form>
+      </template>
 
       <section id="team" aria-labelledby="team-title" hidden>
-        <div class="intro"><span class="eyebrow">GESTIÓN DE ASISTENCIA</span><h1 id="team-title" tabindex="-1">Asistencia del equipo</h1><p>Consultá las entradas, salidas y jornadas de los operarios.</p><button type="button" class="history-link" data-absence-report>Resumen mensual de ausencias <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div>
-        <dl class="team-summary">
-          <div class="card"><dt><span class="summary-dot summary-open"></span> En jornada</dt><dd id="total-open">0</dd></div>
-          <div class="card"><dt><span class="summary-dot summary-closed"></span> Jornada cerrada</dt><dd id="total-closed">0</dd></div>
-          <div class="card"><dt><span class="summary-dot"></span> Sin fichar</dt><dd id="total-waiting">0</dd></div>
-          <div class="card"><dt><span class="summary-dot summary-absent"></span> Ausencia avisada</dt><dd id="total-absent">0</dd></div>
-        </dl>
+        <div class="intro"><h1 id="team-title" tabindex="-1">Asistencia del equipo</h1></div>
+        <div class="team-summary team-status-filters" role="group" aria-label="Filtrar asistencia por estado">
+          <button type="button" class="card" data-team-status="open" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot summary-open"></span> En jornada</span><strong id="total-open">0</strong></button>
+          <button type="button" class="card" data-team-status="closed" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot summary-closed"></span> Jornada cerrada</span><strong id="total-closed">0</strong></button>
+          <button type="button" class="card" data-team-status="waiting" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot"></span> Sin fichar</span><strong id="total-waiting">0</strong></button>
+          <button type="button" class="card" data-team-status="absent" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot summary-absent"></span> Ausencia avisada</span><strong id="total-absent">0</strong></button>
+        </div>
         <section class="card team-records" aria-labelledby="team-records-title">
-          <div class="team-toolbar"><div><h2 id="team-records-title">Fichadas por operario</h2><p id="team-count" role="status"></p></div><div class="team-filters"><label>Fecha<input id="team-date" type="date" required></label><label>Buscar operario<input id="team-search" type="search" placeholder="Nombre, DNI o legajo"></label></div></div>
-          <div class="team-table-wrap" tabindex="0" role="region" aria-label="Tabla de fichadas"><table class="team-table"><thead><tr><th scope="col">Operario</th><th scope="col">Entrada</th><th scope="col">Salida</th><th scope="col">Estado</th></tr></thead><tbody id="team-list"></tbody></table></div>
+          <div class="team-toolbar"><div><h2 id="team-records-title" tabindex="-1">Registros por empleado</h2><p id="team-count" role="status"></p><button type="button" id="clear-team-status" class="history-link" hidden>Quitar filtro de estado</button></div><div class="team-filters"><label>Fecha<input id="team-date" type="date" required></label><label>Buscar empleado<input id="team-search" type="search" placeholder="Nombre, DNI o legajo"></label></div></div>
+          <div class="team-table-wrap" tabindex="0" role="region" aria-label="Tabla de fichadas"><table class="team-table"><thead><tr><th scope="col">Empleado</th><th scope="col">Entrada</th><th scope="col">Salida</th><th scope="col">Estado</th></tr></thead><tbody id="team-list"></tbody></table></div>
         </section>
       </section>
 
       <section id="workers" aria-labelledby="workers-title" hidden>
-        <div class="intro"><span class="eyebrow">GESTIÓN DEL PERSONAL</span><h1 id="workers-title" tabindex="-1">Operarios</h1><p>Administrá las cuentas y registrá las ausencias avisadas.</p><div class="section-links"><button id="profile-shortcut" type="button" class="history-link">Puesto y horario <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button><button id="absence-shortcut" type="button" class="history-link">Ir a Ausencias <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button><button type="button" class="history-link" data-absence-report>Resumen mensual <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div></div>
-        <div class="workers-layout">
-          <section class="card workers-card" aria-labelledby="worker-add-title">
-            <h2 id="worker-add-title">Agregar operario</h2><p class="field-hint">Usá datos ficticios en esta demostración.</p>
+        <div class="intro module-heading"><h1 id="workers-title" tabindex="-1">Personal</h1><button type="button" class="report-button" data-view="worker-add">+ Dar de alta</button></div>
+        <div class="card workers-card">
+          <p class="field-hint">Tocá un nombre para editar su perfil.</p>
+          <div id="issued-code" class="issued-code" role="status" tabindex="-1" hidden><strong id="issued-name"></strong><output id="issued-value"></output><p>Entregale el código al empleado. Vence en 24 horas y se puede usar una sola vez.</p></div>
+          <p id="worker-code-error" class="form-error" role="alert" hidden></p>
+          <ul id="workers-list" class="record-list"></ul>
+        </div>
+      </section>
+
+      <section id="worker-add" aria-labelledby="worker-add-title" hidden>
+        <div class="intro module-heading"><h1 id="worker-add-title" tabindex="-1">Alta de empleado</h1><button type="button" class="history-link" data-view="workers">Ver listado</button></div>
+          <div class="card workers-card module-form">
             <form id="worker-form" class="entry-form" autocomplete="off">
               <label for="worker-first">Nombre</label><input id="worker-first" maxlength="60" required>
               <label for="worker-last">Apellido</label><input id="worker-last" maxlength="60" required>
@@ -152,21 +212,17 @@
               <p id="worker-error" class="form-error" role="alert" hidden></p>
               <button type="submit" class="punch">Crear cuenta y código</button>
             </form>
-          </section>
-          <section class="card workers-card" aria-labelledby="worker-list-title">
-            <h2 id="worker-list-title" tabindex="-1">Listado de operarios</h2>
-            <p class="field-hint">Tocá el nombre de un operario para editar su perfil.</p>
-            <div id="issued-code" class="issued-code" role="status" tabindex="-1" hidden><strong id="issued-name"></strong><output id="issued-value"></output><p>Entregale el código al operario. Vence en 24 horas y se puede usar una sola vez.</p></div>
-            <p id="worker-code-error" class="form-error" role="alert" hidden></p>
-            <ul id="workers-list" class="record-list"></ul>
-          </section>
-        </div>
-        <div class="workers-layout absence-layout">
+          </div>
+      </section>
+
+      <section id="absences" aria-labelledby="absences-title" hidden>
+        <div class="intro"><h1 id="absences-title" tabindex="-1">Ausencias</h1></div>
+        <div class="workers-layout">
           <section class="card workers-card" aria-labelledby="absence-title">
-            <h2 id="absence-title" tabindex="-1">Ausencias</h2><p class="field-hint">Elegí un operario y una fecha para registrar o editar una ausencia.</p>
+            <h2 id="absence-title">Registrar o editar un aviso</h2><p class="field-hint">Seleccioná un empleado y una fecha.</p>
             <form id="absence-form" class="entry-form" autocomplete="off">
-              <label for="absence-search">Buscar operario</label><input id="absence-search" type="search" placeholder="Nombre, DNI o legajo">
-              <label for="absence-worker">Operario</label><select id="absence-worker" required></select>
+              <label for="absence-search">Buscar empleado</label><input id="absence-search" type="search" placeholder="Nombre, DNI o legajo">
+              <label for="absence-worker">Empleado</label><select id="absence-worker" required></select>
               <label for="absence-date">Fecha de la ausencia</label><input id="absence-date" type="date" required>
               <label for="absence-reason">Motivo</label><select id="absence-reason" required>
                 <option value="">Elegí un motivo</option><option value="personal">Motivo personal</option><option value="personal-errand">Trámite personal</option><option value="medical">Trámite médico</option><option value="other">Otro</option>
@@ -179,13 +235,17 @@
           </section>
           <section class="card workers-card" aria-labelledby="absence-list-title">
             <h2 id="absence-list-title" tabindex="-1">Ausencias registradas</h2>
-            <p id="absence-empty" class="field-hint">Elegí un operario para consultar sus ausencias.</p>
+            <p id="absence-empty" class="field-hint">Seleccioná un empleado para consultar sus ausencias.</p>
             <ul id="absence-list" class="record-list"></ul>
           </section>
         </div>
-        <section class="card workers-card absence-layout" aria-labelledby="absence-report-title">
+      </section>
+
+      <section id="absence-summary" aria-labelledby="absence-summary-title" hidden>
+        <div class="intro"><h1 id="absence-summary-title" tabindex="-1">Resumen de ausencias</h1></div>
+        <div class="card workers-card">
           <div class="team-toolbar report-toolbar">
-            <div><h2 id="absence-report-title" tabindex="-1">Resumen mensual de ausencias</h2><p>Cuenta un aviso por operario y fecha.</p></div>
+            <p>Cuenta un aviso por empleado y fecha.</p>
             <div class="team-filters report-filter"><label for="absence-month">Mes del informe<input id="absence-month" type="month" pattern="[0-9]{4,}-(0[1-9]|1[0-2])" placeholder="AAAA-MM" aria-describedby="absence-month-help" required></label><p id="absence-month-help" class="field-hint" hidden>Ingresá el mes en formato AAAA-MM.</p></div>
           </div>
           <dl class="team-summary report-summary">
@@ -195,8 +255,8 @@
           </dl>
           <ul id="month-reasons" class="report-reasons" aria-label="Totales por motivo"></ul>
           <p id="month-empty" class="field-hint" role="status" hidden></p>
-          <ul id="month-workers" class="record-list" aria-label="Avisos por operario"></ul>
-        </section>
+          <ul id="month-workers" class="record-list" aria-label="Avisos por empleado"></ul>
+        </div>
       </section>
 
       <section id="reports" aria-labelledby="reports-title" hidden>
@@ -210,15 +270,13 @@
           <label id="report-half-label" hidden>Quincena <select id="report-half"><option value="first">1 al 15</option><option value="second">16 al fin de mes</option></select></label>
           <label id="report-from-label" hidden>Desde <input id="report-from" type="date" disabled required></label>
           <label id="report-to-label" hidden>Hasta <input id="report-to" type="date" disabled required></label>
-          <label>Operario <select id="report-worker"><option value="">Todos los operarios</option></select></label>
+          <label>Empleado <select id="report-worker"><option value="">Todo el personal</option></select></label>
           <button class="punch" type="submit">Generar informe</button>
           <p id="report-error" class="form-error" role="alert" hidden></p>
         </form>
         <div class="report-actions">
           <button id="export-attendance-xlsx" type="button" class="report-button">Exportar Excel</button>
           <button id="export-attendance-pdf" type="button" class="report-button">Exportar PDF</button>
-          <button type="button" class="history-link" data-open-factory-schedule aria-haspopup="dialog">Horario general</button>
-          <button type="button" class="history-link" data-report-focus="closure-title">Calendario de fábrica</button>
         </div>
         <p id="attendance-notice" class="field-hint" role="status"></p>
         <dl id="attendance-totals" class="attendance-totals" aria-label="Indicadores del período"></dl>
@@ -226,7 +284,7 @@
           <h2 id="attendance-detail-title">Detalle por día</h2>
           <p id="attendance-empty" class="field-hint" hidden>No hay registros para mostrar en este período.</p>
           <div class="attendance-table-wrap" role="region" aria-label="Detalle de asistencia" tabindex="0">
-            <table class="team-table attendance-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Operario</th><th scope="col">Entrada</th><th scope="col">Salida</th><th scope="col">Indicador</th><th scope="col">Observación</th></tr></thead><tbody id="attendance-rows"></tbody></table>
+            <table class="team-table attendance-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Empleado</th><th scope="col">Entrada</th><th scope="col">Salida</th><th scope="col">Indicador</th><th scope="col">Observación</th></tr></thead><tbody id="attendance-rows"></tbody></table>
           </div>
         </section>
         <section class="card workers-card absence-layout" aria-labelledby="report-closures-title">
@@ -234,15 +292,22 @@
           <p id="report-closures-empty" class="field-hint" hidden>No hay feriados ni cierres cargados para este período.</p>
           <ul id="report-closures" class="record-list"></ul>
         </section>
-        <div class="workers-layout attendance-settings">
-          <section class="card workers-card" aria-labelledby="schedule-title">
-            <h2 id="schedule-title" tabindex="-1">Horario general de fábrica</h2>
-            <p class="field-hint">Se aplica a los operarios que usan el horario general.</p>
+      </section>
+
+      <section id="factory-hours" aria-labelledby="factory-hours-title" hidden>
+        <div class="intro"><h1 id="factory-hours-title" tabindex="-1">Horario general de fábrica</h1></div>
+          <div class="card workers-card module-form">
+            <p class="field-hint">Se aplica al personal que tiene asignado el horario general.</p>
             <p id="factory-schedule-summary" class="field-hint"></p>
             <button type="button" class="history-link" data-open-factory-schedule aria-haspopup="dialog">Editar horario general</button>
-          </section>
+          </div>
+      </section>
+
+      <section id="calendar" aria-labelledby="calendar-title" hidden>
+        <div class="intro"><h1 id="calendar-title" tabindex="-1">Calendario de fábrica</h1></div>
+        <div class="workers-layout">
           <section class="card workers-card" aria-labelledby="closure-title">
-            <h2 id="closure-title" tabindex="-1">Calendario de fábrica</h2>
+            <h2 id="closure-title" tabindex="-1">Registrar un cierre</h2>
             <form id="closure-form" class="entry-form">
               <label for="closure-type">Tipo</label><select id="closure-type" required><option value="holiday">Feriado</option><option value="vacation">Vacaciones de fábrica</option><option value="shutdown">Cierre de fábrica</option></select>
               <label for="closure-from">Desde</label><input id="closure-from" type="date" required>
@@ -252,7 +317,11 @@
               <button type="submit" id="closure-save" class="punch">Agregar al calendario</button>
               <button type="button" id="closure-cancel" class="history-link" hidden>Cancelar edición</button>
             </form>
-            <ul id="closure-list" class="record-list" aria-label="Calendario guardado"></ul>
+          </section>
+          <section class="card workers-card" aria-labelledby="calendar-list-title">
+            <h2 id="calendar-list-title">Feriados y cierres guardados</h2>
+            <p id="calendar-empty" class="field-hint" hidden>Todavía no hay fechas cargadas.</p>
+            <ul id="closure-list" class="record-list"></ul>
           </section>
         </div>
       </section>
@@ -273,18 +342,43 @@
       </div>
     </form>
   </dialog>
+  <dialog id="manual-adjustment" class="punch-dialog" aria-labelledby="manual-adjustment-title" aria-describedby="manual-context">
+    <h2 id="manual-adjustment-title" tabindex="-1">Ajustar fichada</h2>
+    <p id="manual-context"></p>
+    <form id="manual-form" class="entry-form">
+      <fieldset id="manual-edit" class="profile-fields">
+        <legend>1 de 2 · Datos del ajuste</legend>
+        <label for="manual-mark">Fichada</label><select id="manual-mark" required></select>
+        <label for="manual-time">Hora correcta</label><input id="manual-time" type="time" required>
+        <label for="manual-reason">Motivo del ajuste (opcional)</label><textarea id="manual-reason" rows="3" maxlength="300" placeholder="Ej. Se olvidó de fichar o no tenía conexión"></textarea>
+      </fieldset>
+      <fieldset id="manual-review" class="profile-fields" hidden disabled>
+        <legend>2 de 2 · Confirmar el cambio</legend>
+        <p id="manual-preview"></p>
+        <p id="manual-preview-reason" class="manual-preview-reason"></p>
+        <p class="field-hint">El ajuste se aplicará al historial y a los informes.</p>
+      </fieldset>
+      <p id="manual-error" class="form-error" role="alert" hidden></p>
+      <div class="punch-dialog-actions">
+        <button id="cancel-manual" type="button" class="report-button">Cancelar</button>
+        <button id="back-manual" type="button" class="report-button" hidden>Volver a editar</button>
+        <button id="manual-next" type="submit" class="punch">Revisar ajuste</button>
+        <button id="confirm-manual" type="button" class="punch" hidden>Confirmar ajuste</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="schedule-dialog" class="punch-dialog schedule-dialog" aria-labelledby="schedule-dialog-title">
     <h2 id="schedule-dialog-title" tabindex="-1" autofocus></h2>
     <form id="schedule-editor-form" class="entry-form">
       <fieldset id="schedule-profile-fields" class="profile-fields" hidden disabled>
-        <legend class="sr-only">Datos del operario</legend>
+        <legend class="sr-only">Datos del empleado</legend>
         <dl class="schedule-profile-info"><div><dt>Identificación</dt><dd id="schedule-profile-id"></dd></div><div><dt>Estado</dt><dd id="schedule-profile-status"></dd></div></dl>
         <label for="profile-position">Puesto (opcional)</label><input id="profile-position" maxlength="80" placeholder="Ej. Soldador">
         <p id="profile-schedule-summary" class="field-hint"></p>
         <div class="section-links"><button id="assign-schedule" type="button" class="report-button"></button><button id="inherit-schedule" type="button" class="history-link" hidden>Usar horario general</button></div>
         <button id="issue-recovery" type="button" class="history-link" hidden>Generar código para restablecer contraseña</button>
         <p id="recovery-issue-error" class="form-error" role="alert" hidden></p>
-        <div id="issued-recovery" class="issued-code" role="status" tabindex="-1" hidden><strong>Código de recuperación</strong><output id="issued-recovery-value"></output><p>Entregáselo al operario para que lo use en «Olvidé mi contraseña». Vence en 24 horas y se usa una sola vez.</p></div>
+        <div id="issued-recovery" class="issued-code" role="status" tabindex="-1" hidden><strong>Código de recuperación</strong><output id="issued-recovery-value"></output><p>Entregáselo al empleado para que lo use en «Olvidé mi contraseña». Vence en 24 horas y se usa una sola vez.</p></div>
       </fieldset>
       <fieldset id="schedule-hours" class="profile-fields" hidden disabled>
         <legend>Horarios por grupo de días</legend>
