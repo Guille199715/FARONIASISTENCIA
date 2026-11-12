@@ -47,6 +47,7 @@
         </div>
       </section>
       <section id="employer-attendance" class="card day-card" hidden>
+        <button id="open-employee-setup" class="report-button" type="button" aria-haspopup="dialog">Alta de empleado</button>
         <div class="entry-form">
           <label for="attendance-date">Fecha de asistencia</label>
           <input id="attendance-date" type="date" required>
@@ -55,6 +56,34 @@
       </section>
     </main>
   </div>
+
+  <dialog id="employee-setup-dialog" class="punch-dialog" aria-labelledby="employee-setup-title">
+    <h2 id="employee-setup-title">Alta de empleado</h2>
+    <form id="employee-setup-form" class="entry-form">
+      <label for="employee-setup-name">Nombre y apellido</label>
+      <input id="employee-setup-name" type="text" maxlength="120" autocomplete="off" required>
+      <label for="employee-setup-dni">DNI</label>
+      <input id="employee-setup-dni" type="text" inputmode="numeric" maxlength="12" autocomplete="off" required>
+      <p id="employee-setup-message" role="status" hidden></p>
+      <div class="punch-dialog-actions">
+        <button id="cancel-employee-setup" class="report-button" type="button">Cancelar</button>
+        <button id="submit-employee-setup" class="punch" type="submit">Crear cuenta</button>
+      </div>
+    </form>
+    <div id="employee-setup-result" hidden>
+      <p id="employee-setup-success" role="status"></p>
+      <div class="entry-form">
+        <label for="employee-setup-password">Clave inicial</label>
+        <input id="employee-setup-password" type="text" readonly autocomplete="off" spellcheck="false">
+      </div>
+      <p>Copiá la clave antes de cerrar y compartila en privado con el empleado.</p>
+      <div class="punch-dialog-actions">
+        <button id="close-employee-setup" class="report-button" type="button">Cerrar</button>
+        <button id="copy-employee-password" class="punch" type="button">Copiar clave</button>
+      </div>
+      <p id="employee-copy-message" role="status"></p>
+    </div>
+  </dialog>
 
   <dialog id="team-punch-dialog" class="punch-dialog" aria-labelledby="team-punch-title">
     <h2 id="team-punch-title"></h2>

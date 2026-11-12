@@ -1,6 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
 import {
-  browserSessionPersistence, getAuth, onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signOut,
+  browserSessionPersistence, createUserWithEmailAndPassword, getAuth, initializeAuth, inMemoryPersistence,
+  onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signOut,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import {
   collection, doc, getDocFromServer, getFirestore, onSnapshot, runTransaction, serverTimestamp,
@@ -15,7 +16,14 @@ const timeFormat = new Intl.DateTimeFormat('es-AR', { timeZone, timeStyle: 'shor
 const accessMessage = get('team-access-message');
 const punchButton = get('record-punch');
 const dialog = get('team-punch-dialog');
+const employeeDialog = get('employee-setup-dialog');
+const employeeForm = get('employee-setup-form');
+const employeeName = get('employee-setup-name');
+const employeeDni = get('employee-setup-dni');
+const employeeSubmit = get('submit-employee-setup');
+const employeePassword = get('employee-setup-password');
 let auth;
+let employeeAuth;
 let db;
 let account;
 let currentDay;
@@ -27,6 +35,16 @@ let unsubscribeStaff;
 let staff = [];
 let records = new Map();
 let session = 0;
+let employeeDraft;
+let creatingEmployee = false;
+
+function employeeEmail(dni) {
+  return `${dni}@personal.asistencia-faroni.web.app`;
+}
+
+function normalizeDni(value) {
+  return value.trim().replaceAll('.', '');
+}
 
 function plantDate(now = new Date()) {
   const parts = Object.fromEntries(dateFormat.formatToParts(now).map(({ type, value }) => [type, value]));
@@ -115,6 +133,9 @@ function resetView() {
   unsubscribeDay?.();
   unsubscribeStaff?.();
   if (dialog.open) dialog.close();
+  if (employeeDialog.open) employeeDialog.close();
+  employeeDraft = undefined;
+  clearEmployeeForm();
   account = undefined;
   pending = undefined;
   currentDay = undefined;
@@ -179,8 +200,8 @@ get('team-access-form').addEventListener('submit', async (event) => {
   const button = get('team-enter');
   if (button.disabled) return;
   const login = get('team-user').value.trim();
-  const dni = login.replaceAll('.', '');
-  const email = /^[0-9]{7,8}$/.test(dni) ? `${dni}@personal.asistencia-faroni.web.app` : login;
+  const dni = normalizeDni(login);
+  const email = /^[0-9]{7,8}$/.test(dni) ? employeeEmail(dni) : login;
   button.disabled = true;
   accessMessage.textContent = '';
   try {
@@ -201,6 +222,140 @@ get('team-sign-out').addEventListener('click', async () => {
   }
 });
 get('attendance-date').addEventListener('change', watchDay);
+
+function setEmployeeMessage(message = '', error = false) {
+  const notice = get('employee-setup-message');
+  notice.textContent = message;
+  notice.hidden = !message;
+  notice.className = error ? 'form-error' : 'field-hint';
+}
+
+function clearEmployeeForm() {
+  employeeForm.reset();
+  employeeForm.hidden = false;
+  employeePassword.value = '';
+  get('employee-setup-success').textContent = '';
+  get('employee-setup-result').hidden = true;
+  get('employee-copy-message').textContent = '';
+  setEmployeeMessage();
+}
+
+function updateEmployeeControls() {
+  employeeName.readOnly = employeeDni.readOnly = Boolean(employeeDraft);
+  employeeSubmit.disabled = creatingEmployee;
+  get('cancel-employee-setup').disabled = creatingEmployee;
+  employeeSubmit.textContent = creatingEmployee ? 'Creando cuenta…' : employeeDraft ? 'Reintentar alta' : 'Crear cuenta';
+}
+
+function createInitialPassword() {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return 'Aa7' + Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function provisionEmployee(draft) {
+  if (!draft.uid) {
+    const email = employeeEmail(draft.dni);
+    let credentials;
+    try {
+      credentials = await createUserWithEmailAndPassword(employeeAuth, email, draft.password);
+    } catch (error) {
+      if (error.code !== 'auth/email-already-in-use' || !draft.signupUncertain) {
+        draft.signupUncertain = error.code === 'auth/network-request-failed' || error.code === 'auth/internal-error';
+        throw error;
+      }
+      try {
+        credentials = await signInWithEmailAndPassword(employeeAuth, email, draft.password);
+      } catch (signInError) {
+        if (!['auth/invalid-credential', 'auth/wrong-password'].includes(signInError.code)) throw signInError;
+        draft.signupUncertain = false;
+        throw error;
+      }
+    }
+    draft.uid = credentials.user.uid;
+  }
+  if (draft.session !== session) throw new Error('Employer session changed');
+
+  const ref = doc(db, 'profiles', draft.uid);
+  const profile = { name: draft.name, role: 'worker', dni: draft.dni };
+  await runTransaction(db, async (transaction) => {
+    const existing = (await transaction.get(ref)).data();
+    if (!existing) transaction.set(ref, profile);
+    else if (existing.role !== profile.role || existing.name !== profile.name || existing.dni !== profile.dni) {
+      throw new Error('Employee profile already exists');
+    }
+  });
+}
+
+get('open-employee-setup').addEventListener('click', () => {
+  if (account?.role !== 'employer' || employeeDialog.open) return;
+  clearEmployeeForm();
+  if (employeeDraft) {
+    employeeName.value = employeeDraft.name;
+    employeeDni.value = employeeDraft.dni;
+    setEmployeeMessage('Hay un alta pendiente. Reintentá para terminarla.', true);
+  }
+  updateEmployeeControls();
+  employeeDialog.showModal();
+  (employeeDraft ? employeeSubmit : employeeName).focus();
+});
+
+get('cancel-employee-setup').addEventListener('click', () => employeeDialog.close());
+get('close-employee-setup').addEventListener('click', () => employeeDialog.close());
+employeeDialog.addEventListener('cancel', (event) => {
+  if (creatingEmployee) event.preventDefault();
+});
+employeeDialog.addEventListener('close', clearEmployeeForm);
+
+employeeForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (account?.role !== 'employer' || creatingEmployee || !employeeDialog.open) return;
+  const name = employeeName.value.trim();
+  const dni = normalizeDni(employeeDni.value);
+  if (!name || !/^[0-9]{7,8}$/.test(dni)) {
+    setEmployeeMessage('Ingresá el nombre y un DNI de 7 u 8 dígitos.', true);
+    return;
+  }
+  const draft = employeeDraft ??= { name, dni, password: createInitialPassword(), session };
+  creatingEmployee = true;
+  updateEmployeeControls();
+  setEmployeeMessage();
+  try {
+    employeeAuth ??= initializeAuth(initializeApp(firebaseConfig, 'employee-setup'), { persistence: inMemoryPersistence });
+    await provisionEmployee(draft);
+    if (draft.session !== session) return;
+    employeeDraft = undefined;
+    employeeForm.hidden = true;
+    get('employee-setup-success').textContent = `Cuenta creada para ${draft.name}. DNI ${draft.dni}.`;
+    employeePassword.value = draft.password;
+    get('employee-setup-result').hidden = false;
+    get('copy-employee-password').focus();
+  } catch (error) {
+    if (draft.session !== session) return;
+    if (draft.uid || draft.signupUncertain) {
+      setEmployeeMessage('No se pudo confirmar el alta. Reintentá desde esta pestaña para terminarla.', true);
+    } else {
+      employeeDraft = undefined;
+      setEmployeeMessage(error.code === 'auth/email-already-in-use'
+        ? 'Ya existe una cuenta con ese DNI.'
+        : 'No se pudo crear la cuenta. Revisá la conexión y volvé a intentar.', true);
+    }
+  } finally {
+    if (employeeAuth?.currentUser) await signOut(employeeAuth).catch(() => {});
+    creatingEmployee = false;
+    updateEmployeeControls();
+  }
+});
+
+get('copy-employee-password').addEventListener('click', async () => {
+  if (!employeePassword.value) return;
+  try {
+    await navigator.clipboard.writeText(employeePassword.value);
+    if (employeePassword.value) get('employee-copy-message').textContent = 'Clave copiada.';
+  } catch {
+    employeePassword.focus();
+    employeePassword.select();
+  }
+});
 
 punchButton.addEventListener('click', () => {
   if (punchButton.disabled) return;
