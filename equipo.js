@@ -1,7 +1,8 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
 import {
-  browserSessionPersistence, createUserWithEmailAndPassword, getAuth, initializeAuth, inMemoryPersistence,
-  onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signOut,
+  browserSessionPersistence, createUserWithEmailAndPassword, EmailAuthProvider, getAuth, initializeAuth,
+  inMemoryPersistence, onAuthStateChanged, reauthenticateWithCredential, setPersistence,
+  signInWithEmailAndPassword, signOut, updatePassword,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import {
   collection, doc, getDocFromServer, getFirestore, onSnapshot, runTransaction, serverTimestamp,
@@ -22,6 +23,11 @@ const employeeName = get('employee-setup-name');
 const employeeDni = get('employee-setup-dni');
 const employeeSubmit = get('submit-employee-setup');
 const employeePassword = get('employee-setup-password');
+const passwordDialog = get('password-change-dialog');
+const passwordForm = get('password-change-form');
+const currentPassword = get('password-current');
+const passwordSubmit = get('submit-password-change');
+const passwordCancel = get('cancel-password-change');
 let auth;
 let employeeAuth;
 let db;
@@ -134,6 +140,8 @@ function resetView() {
   unsubscribeStaff?.();
   if (dialog.open) dialog.close();
   if (employeeDialog.open) employeeDialog.close();
+  if (passwordDialog.open) passwordDialog.close();
+  passwordForm.reset();
   employeeDraft = undefined;
   clearEmployeeForm();
   account = undefined;
@@ -222,6 +230,82 @@ get('team-sign-out').addEventListener('click', async () => {
   }
 });
 get('attendance-date').addEventListener('change', watchDay);
+
+function setPasswordError(message = '') {
+  const error = get('password-change-error');
+  error.textContent = message;
+  error.hidden = !message;
+}
+
+get('open-password-change').addEventListener('click', () => {
+  if (account?.role !== 'worker' || passwordDialog.open) return;
+  passwordForm.reset();
+  setPasswordError();
+  passwordDialog.showModal();
+  currentPassword.focus();
+});
+
+passwordCancel.addEventListener('click', () => passwordDialog.close());
+passwordDialog.addEventListener('cancel', (event) => {
+  if (passwordSubmit.disabled) event.preventDefault();
+});
+passwordDialog.addEventListener('close', () => {
+  passwordForm.reset();
+  setPasswordError();
+});
+
+passwordForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const user = auth?.currentUser;
+  if (account?.role !== 'worker' || !user?.email || user.uid !== account.uid ||
+    !passwordDialog.open || passwordSubmit.disabled) return;
+  const current = currentPassword.value;
+  const next = get('password-new').value;
+  setPasswordError();
+  if (Array.from(next).length < 8 || next.length > 128 || !/\p{L}/u.test(next) || !/\d/.test(next)) {
+    setPasswordError('La contraseña nueva debe tener entre 8 y 128 caracteres, con letras y números.');
+    return;
+  }
+  if (next === current) {
+    setPasswordError('Elegí una contraseña distinta de la actual.');
+    return;
+  }
+  if (next !== get('password-repeat').value) {
+    setPasswordError('Las contraseñas nuevas no coinciden.');
+    return;
+  }
+
+  const activeSession = session;
+  passwordSubmit.disabled = passwordCancel.disabled = true;
+  passwordSubmit.textContent = 'Guardando…';
+  let changing = false;
+  try {
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, current));
+    if (activeSession !== session || auth.currentUser?.uid !== user.uid) return;
+    changing = true;
+    await updatePassword(user, next);
+    if (activeSession !== session) return;
+    passwordForm.reset();
+    passwordDialog.close();
+    setMessage('Contraseña actualizada. Usá la nueva la próxima vez que ingreses.');
+  } catch (error) {
+    if (activeSession !== session) return;
+    const messages = {
+      'auth/invalid-credential': 'La contraseña actual no coincide.',
+      'auth/wrong-password': 'La contraseña actual no coincide.',
+      'auth/invalid-login-credentials': 'La contraseña actual no coincide.',
+      'auth/too-many-requests': 'Hubo demasiados intentos. Esperá un momento y volvé a probar.',
+      'auth/network-request-failed': changing
+        ? 'Se interrumpió la conexión al guardar. Probá la clave nueva al volver a ingresar antes de repetir el cambio.'
+        : 'No pudimos verificar la contraseña actual. Revisá la conexión y volvé a intentar.',
+      'auth/requires-recent-login': 'Volvé a iniciar sesión y probá otra vez.',
+    };
+    setPasswordError(messages[error.code] ?? 'No pudimos cambiar la contraseña. Volvé a intentar.');
+  } finally {
+    passwordSubmit.disabled = passwordCancel.disabled = false;
+    passwordSubmit.textContent = 'Guardar contraseña';
+  }
+});
 
 function setEmployeeMessage(message = '', error = false) {
   const notice = get('employee-setup-message');

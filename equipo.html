@@ -44,6 +44,7 @@
         </div>
         <div class="entry-form">
           <button id="record-punch" class="punch" type="button" disabled>Marcar entrada</button>
+          <button id="open-password-change" class="report-button" type="button" aria-haspopup="dialog">Cambiar contraseña</button>
         </div>
       </section>
       <section id="employer-attendance" class="card day-card" hidden>
@@ -56,6 +57,24 @@
       </section>
     </main>
   </div>
+
+  <dialog id="password-change-dialog" class="punch-dialog" aria-labelledby="password-change-title">
+    <h2 id="password-change-title">Cambiar contraseña</h2>
+    <form id="password-change-form" class="entry-form">
+      <label for="password-current">Contraseña actual</label>
+      <input id="password-current" type="password" autocomplete="current-password" required>
+      <label for="password-new">Nueva contraseña</label>
+      <input id="password-new" type="password" minlength="8" maxlength="128" autocomplete="new-password" aria-describedby="password-change-hint" required>
+      <p id="password-change-hint" class="field-hint">Usá al menos 8 caracteres con letras y números.</p>
+      <label for="password-repeat">Repetí la contraseña nueva</label>
+      <input id="password-repeat" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+      <p id="password-change-error" class="form-error" role="alert" hidden></p>
+      <div class="punch-dialog-actions">
+        <button id="cancel-password-change" class="report-button" type="button">Cancelar</button>
+        <button id="submit-password-change" class="punch" type="submit">Guardar contraseña</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="employee-setup-dialog" class="punch-dialog" aria-labelledby="employee-setup-title">
     <h2 id="employee-setup-title">Alta de empleado</h2>
