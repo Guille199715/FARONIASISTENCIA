@@ -7,10 +7,10 @@
   <title>Asistencia | Metalúrgica Tecnológica Faroni</title>
   <link rel="icon" href="assets/faroni.jpg">
   <link rel="stylesheet" href="styles.css">
-  <script src="app.js" defer></script>
+  <script src="app.js?v=portal-1" defer></script>
   <script src="xlsx.js" defer></script>
-  <script src="reports.js" defer></script>
-  <script src="corrections.js" defer></script>
+  <script src="reports.js?v=portal-1" defer></script>
+  <script src="corrections.js?v=portal-1" defer></script>
 </head>
 <body>
   <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -37,39 +37,17 @@
       <h1 id="access-title" tabindex="-1">Iniciar sesión</h1>
       <p>Ingresá con tu cuenta para continuar.</p>
       <form id="access-form" class="entry-form">
-        <label for="username">DNI o usuario del empleador</label>
+        <label for="username">DNI del empleado o correo del empleador</label>
         <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
         <label for="password">Contraseña</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required>
         <p id="access-error" class="form-error" role="alert" hidden></p>
-        <button type="submit" class="punch"><span>Ingresar</span><svg class="icon punch-arrow" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+        <button type="submit" class="punch" disabled><span>Ingresar</span><svg class="icon punch-arrow" aria-hidden="true"><use href="#i-arrow"/></svg></button>
       </form>
-      <div class="access-options" role="group" aria-label="Accesos">
-        <div><button type="button" data-demo-user="99999990">Empleado</button><button type="button" data-demo-user="empleador">Empleador</button></div>
-      </div>
       <div class="section-links">
-        <button id="activate-link" type="button" class="history-link">Activar mi cuenta <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button>
         <button id="forgot-password" type="button" class="history-link">Olvidé mi contraseña</button>
-        <a id="shared-access" href="equipo.html" class="history-link" hidden>Acceso a fichadas compartidas</a>
+        <a id="published-portal" href="https://guille199715.github.io/FARONIASISTENCIA/" class="history-link" hidden>Abrir el portal publicado</a>
       </div>
-    </div>
-    <div id="activation-content" class="access-content" hidden>
-      <h1 id="activation-title" tabindex="-1">Activar mi cuenta</h1>
-      <p id="credential-help">Ingresá tu DNI y el código que te entregó el empleador.</p>
-      <form id="activation-form" class="entry-form">
-        <label for="activation-dni">DNI</label>
-        <input id="activation-dni" inputmode="numeric" pattern="[0-9]{7,8}" maxlength="8" autocomplete="username" required>
-        <label for="activation-code" id="credential-code-label">Código de activación</label>
-        <input id="activation-code" maxlength="8" autocapitalize="characters" spellcheck="false" autocomplete="one-time-code" required>
-        <label for="activation-password">Nueva contraseña</label>
-        <input id="activation-password" type="password" autocomplete="new-password" minlength="15" maxlength="128" aria-describedby="password-help" required>
-        <p id="password-help" class="field-hint">Usá al menos 15 caracteres. Puede ser una frase.</p>
-        <label for="activation-confirm">Repetir contraseña</label>
-        <input id="activation-confirm" type="password" autocomplete="new-password" minlength="15" maxlength="128" required>
-        <p id="activation-error" class="form-error" role="alert" hidden></p>
-        <button type="submit" class="punch"><span id="credential-submit-label">Activar cuenta</span><svg class="icon punch-arrow" aria-hidden="true"><use href="#i-arrow"/></svg></button>
-      </form>
-      <button id="return-to-login" type="button" class="history-link">Volver al inicio de sesión</button>
     </div>
   </main>
 
@@ -148,6 +126,7 @@
           <h2 id="employee-profile-name"></h2>
           <p id="employee-profile-detail" class="field-hint"></p>
           <p id="employee-profile-schedule" class="field-hint"></p>
+          <div class="section-links"><button id="open-password-change" type="button" class="history-link" aria-haspopup="dialog">Cambiar contraseña</button></div>
         </div>
         <details id="correction-details" class="card workers-card absence-layout">
           <summary>Solicitar corrección</summary>
@@ -161,7 +140,7 @@
           </form>
         </details>
         <section class="card records" aria-labelledby="employee-corrections-title"><div class="records-heading"><h2 id="employee-corrections-title">Mis solicitudes y ajustes</h2></div><p id="employee-corrections-empty" class="field-hint">Todavía no hay solicitudes ni ajustes.</p><ul id="employee-corrections" class="record-list"></ul></section>
-        <section class="card records" aria-labelledby="records-title"><div class="records-heading"><h2 id="records-title">Historial de asistencia</h2></div><ul id="history-list" class="record-list"></ul></section>
+        <section class="card records" aria-labelledby="records-title"><div class="records-heading"><h2 id="records-title">Historial de asistencia</h2><p>Se cargan los últimos 30 días. Para consultar una fecha anterior, elegila en Solicitar corrección.</p></div><ul id="history-list" class="record-list"></ul></section>
       </section>
 
       <section id="corrections" aria-labelledby="corrections-title" hidden>
@@ -196,8 +175,7 @@
         <div class="intro module-heading"><h1 id="workers-title" tabindex="-1">Personal</h1><button type="button" class="report-button" data-view="worker-add">+ Dar de alta</button></div>
         <div class="card workers-card">
           <p class="field-hint">Tocá un nombre para editar su perfil.</p>
-          <div id="issued-code" class="issued-code" role="status" tabindex="-1" hidden><strong id="issued-name"></strong><output id="issued-value"></output><p>Entregale el código al empleado. Vence en 24 horas y se puede usar una sola vez.</p></div>
-          <p id="worker-code-error" class="form-error" role="alert" hidden></p>
+          <div id="issued-code" class="issued-code" role="status" tabindex="-1" hidden><strong id="issued-name"></strong><output id="issued-value"></output><p>Copiá la clave y entregásela al empleado en privado. Puede cambiarla al iniciar sesión.</p><button type="button" id="copy-issued-password" class="report-button">Copiar clave</button></div>
           <ul id="workers-list" class="record-list"></ul>
         </div>
       </section>
@@ -210,7 +188,7 @@
               <label for="worker-last">Apellido</label><input id="worker-last" maxlength="60" required>
               <label for="worker-dni">DNI</label><input id="worker-dni" inputmode="numeric" pattern="[0-9]{7,8}" maxlength="8" placeholder="Solo números" required>
               <p id="worker-error" class="form-error" role="alert" hidden></p>
-              <button type="submit" class="punch">Crear cuenta y código</button>
+              <button type="submit" class="punch">Crear cuenta</button>
             </form>
           </div>
       </section>
@@ -332,6 +310,24 @@
 
   <p id="announcement" class="sr-only" role="status"></p>
   <div id="toast" class="toast" hidden></div>
+  <dialog id="password-change-dialog" class="punch-dialog" aria-labelledby="password-change-title">
+    <h2 id="password-change-title">Cambiar contraseña</h2>
+    <form id="password-change-form" class="entry-form">
+      <label for="password-current">Contraseña actual</label>
+      <input id="password-current" type="password" autocomplete="current-password" required>
+      <label for="password-new">Nueva contraseña</label>
+      <input id="password-new" type="password" minlength="8" maxlength="128" autocomplete="new-password" aria-describedby="password-change-hint" required>
+      <p id="password-change-hint" class="field-hint">Usá al menos 8 caracteres con letras y números.</p>
+      <label for="password-repeat">Repetí la contraseña nueva</label>
+      <input id="password-repeat" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+      <p id="password-change-error" class="form-error" role="alert" hidden></p>
+      <div class="punch-dialog-actions">
+        <button id="cancel-password-change" class="report-button" type="button">Cancelar</button>
+        <button id="submit-password-change" class="punch" type="submit">Guardar contraseña</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="punch-dialog" class="punch-dialog" aria-labelledby="punch-dialog-title" aria-describedby="punch-dialog-message">
     <form id="punch-confirmation" method="dialog">
       <h2 id="punch-dialog-title"></h2>
@@ -376,9 +372,6 @@
         <label for="profile-position">Puesto (opcional)</label><input id="profile-position" maxlength="80" placeholder="Ej. Soldador">
         <p id="profile-schedule-summary" class="field-hint"></p>
         <div class="section-links"><button id="assign-schedule" type="button" class="report-button"></button><button id="inherit-schedule" type="button" class="history-link" hidden>Usar horario general</button></div>
-        <button id="issue-recovery" type="button" class="history-link" hidden>Generar código para restablecer contraseña</button>
-        <p id="recovery-issue-error" class="form-error" role="alert" hidden></p>
-        <div id="issued-recovery" class="issued-code" role="status" tabindex="-1" hidden><strong>Código de recuperación</strong><output id="issued-recovery-value"></output><p>Entregáselo al empleado para que lo use en «Olvidé mi contraseña». Vence en 24 horas y se usa una sola vez.</p></div>
       </fieldset>
       <fieldset id="schedule-hours" class="profile-fields" hidden disabled>
         <legend>Horarios por grupo de días</legend>

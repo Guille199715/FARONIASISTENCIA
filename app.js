@@ -1,9 +1,6 @@
 const timeZone = 'America/Argentina/Buenos_Aires';
-const storageKey = 'faroni.demo.attendance.v1';
-const workersKey = 'faroni.demo.workers.v1';
-const absencesKey = 'faroni.demo.absences.v1';
-const plantNetworkKey = 'faroni.plant-network.v1';
-const demoDni = '99999990';
+const absencesKey = 'absences';
+const plantNetworkKey = 'network';
 const timeFormat = new Intl.DateTimeFormat('es-AR', {
   timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
@@ -16,26 +13,26 @@ const dayFormat = new Intl.DateTimeFormat('en-CA', {
 });
 
 const get = (id) => document.getElementById(id);
-get('shared-access').hidden = !['http:', 'https:'].includes(location.protocol);
 const punch = get('punch');
 const wifiToggle = get('wifi-toggle');
 const viewButtons = document.querySelectorAll('[data-view]');
 const teamStatusButtons = document.querySelectorAll('[data-team-status]');
 const workerViews = ['home', 'profile'];
 const employerViews = ['menu', 'home', 'team', 'workers', 'worker-add', 'absences', 'absence-summary', 'reports', 'factory-hours', 'calendar', 'corrections'];
-const demoPassword = 'faroni-demo';
-const accounts = [
-  { username: demoDni, role: 'worker', name: 'Alex Medina', initials: 'AM', detail: 'Legajo 001' },
-  { username: 'empleador', role: 'employer', name: 'Administración Faroni', initials: 'AF', detail: 'Administración' },
-];
 const shiftLabels = { open: 'En jornada', closed: 'Jornada cerrada', waiting: 'Sin fichar', absent: 'Ausencia avisada' };
 const absenceReasons = new Map(Array.from(get('absence-reason').options, ({ value, text }) => [value, text]));
 absenceReasons.delete('');
 let account = null;
 let teamStatus = '';
-let credentialFlow = null;
 let marks = [];
-const sessionMarks = new Map();
+let cloud;
+let stopPortal;
+let workerDraft;
+let historyLoad;
+let attendanceReady = false;
+let loadedToday;
+const portalState = new Map();
+const portalMarks = new Map();
 let sessionVersion = 0;
 let connectionCheck = 0;
 let displayedDay;
@@ -52,68 +49,18 @@ function previousDay(day, daysAgo) {
   return date.toISOString().slice(0, 10);
 }
 
-function demoHistory() {
-  const today = plantDay(new Date());
-  return [1, 2, 3].flatMap((daysAgo) => {
-    const date = previousDay(today, daysAgo);
-    return [
-      { type: 'out', at: new Date(`${date}T16:02:00-03:00`).toISOString() },
-      { type: 'in', at: new Date(`${date}T07:58:00-03:00`).toISOString() },
-    ];
-  });
-}
-
-function attendanceKey(username) {
-  return username === demoDni ? storageKey : `${storageKey}.${username}`;
-}
-
-function loadOriginalMarks(username, now = new Date()) {
-  if (sessionMarks.has(username)) return sessionMarks.get(username);
-  try {
-    const data = JSON.parse(localStorage.getItem(attendanceKey(username)));
-    if (Array.isArray(data) && data.every((mark) => (
-      mark && ['in', 'out'].includes(mark.type) && typeof mark.at === 'string' && Number.isFinite(Date.parse(mark.at))
-    ))) return data;
-  } catch {
-    // The demo is still usable when browser storage is unavailable.
-  }
-  if (username === demoDni) return demoHistory();
-  const worker = staffDirectory().find((item) => item.id === username);
-  if (!worker?.entry) return [];
-  const today = plantDay(now);
-  const absences = new Set(readAbsences().filter((absence) => absence.workerId === username).map((absence) => absence.date));
-  return [0, 1, 2, 3].flatMap((daysAgo) => {
-    const day = previousDay(today, daysAgo);
-    const exit = worker.openToday && !daysAgo ? null : worker.exit;
-    return absences.has(day) ? [] : sampleShift(day, today, now, worker.entry, exit);
-  });
-}
-
-function readWorkers() {
-  try {
-    const data = JSON.parse(localStorage.getItem(workersKey));
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
+function loadOriginalMarks(uid) {
+  return portalMarks.get(uid) ?? [];
 }
 
 function readAbsences() {
-  try {
-    const data = JSON.parse(localStorage.getItem(absencesKey));
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
+  return [...(portalState.get(absencesKey) ?? [])];
 }
 
 function staffDirectory() {
-  return [
-    { id: demoDni, name: accounts[0].name, label: 'Legajo 001', active: true },
-    { id: 'sample-002', name: 'Camila Torres', label: 'Legajo 002', active: true, entry: '07:52', exit: '15:56', openToday: true },
-    { id: 'sample-003', name: 'Martín Ruiz', label: 'Legajo 003', active: true, entry: '08:04', exit: '16:06' },
-    ...readWorkers().map((worker) => ({ id: worker.dni, name: worker.name, label: `DNI ${worker.dni}`, active: Boolean(worker.password), createdOn: worker.createdOn })),
-  ];
+  return (portalState.get('staff') ?? []).filter((item) => item.role === 'worker' && typeof item.name === 'string')
+    .map((item) => ({ id: item.id, name: item.name, label: item.dni ? 'DNI ' + item.dni : 'Personal', active: true, createdOn: item.createdOn }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'es-AR'));
 }
 
 function matchesWorker(worker, query) {
@@ -123,20 +70,6 @@ function matchesWorker(worker, query) {
 
 function hex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function secretDigest(secret, salt) {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({
-    name: 'PBKDF2', hash: 'SHA-256', salt: encoder.encode(salt), iterations: 600000,
-  }, key, 256);
-  return hex(new Uint8Array(bits));
-}
-
-async function protectSecret(secret) {
-  const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
-  return { salt, digest: await secretDigest(secret, salt) };
 }
 
 function setFormError(id, message = '') {
@@ -156,7 +89,7 @@ function handleForm(id, errorId, action) {
     try {
       await action();
     } catch {
-      setFormError(errorId, 'No se pudo completar la operación. Verificá que el navegador permita guardar datos locales.');
+      setFormError(errorId, 'No se pudo completar la operación. Revisá tu conexión y volvé a intentar.');
     } finally {
       submit.disabled = false;
     }
@@ -191,7 +124,7 @@ function recordList(list, entries) {
 
 function shiftSummary(records, day, today) {
   const daily = records.filter(({ at }) => plantDay(new Date(at)) === day);
-  const latest = day === today ? records[0] : daily[0];
+  const latest = daily[0];
   const state = latest?.type === 'in' ? 'open' : daily.length ? 'closed' : 'waiting';
   return {
     state,
@@ -210,7 +143,8 @@ function renderShift(day) {
   const open = state === 'open';
   badge.dataset.state = state;
   badge.querySelector('span').textContent = shiftLabels[state];
-  punch.querySelector('span').textContent = open ? 'Marcar salida' : 'Marcar entrada';
+  punch.disabled = !attendanceReady || !portalState.has('network') || savingPunch || Boolean(exit);
+  punch.querySelector('span').textContent = exit ? 'Jornada registrada' : open ? 'Marcar salida' : 'Marcar entrada';
   punch.querySelector('use').setAttribute('href', open ? '#i-out' : '#i-in');
   get('today-in').textContent = markTime(entry);
   get('today-out').textContent = markTime(exit);
@@ -395,17 +329,20 @@ function onPlantSettings() {
   return account?.role === 'employer' && !get('home').hidden;
 }
 
-function savePlantNetwork(enabled, ip) {
+async function savePlantNetwork(enabled, ip) {
   setFormError('plant-network-error');
   if ((enabled || ip) && !isIPv4(ip)) {
     setFormError('plant-network-error', 'Ingresá una IPv4 válida o elegí Usar IP actual desde la red de planta.');
     get('plant-ip').focus();
     return false;
   }
+  const session = sessionVersion;
   try {
-    localStorage.setItem(plantNetworkKey, JSON.stringify({ enabled, ip }));
+    await cloud.saveSetting(plantNetworkKey, { enabled, ip });
+    if (session !== sessionVersion) return false;
+    portalState.set(plantNetworkKey, { enabled, ip });
   } catch {
-    setFormError('plant-network-error', 'No se pudo guardar la configuración en este navegador.');
+    setFormError('plant-network-error', 'No se pudo guardar la configuración de red.');
     return false;
   }
   get('plant-ip').value = ip;
@@ -413,24 +350,27 @@ function savePlantNetwork(enabled, ip) {
   return true;
 }
 
-wifiToggle.addEventListener('click', () => {
+wifiToggle.addEventListener('click', async () => {
   if (!onPlantSettings()) return;
   const config = readPlantNetwork();
   const enabled = !config.enabled;
   const ip = enabled ? get('plant-ip').value.trim() : (isIPv4(config.ip) ? config.ip : '');
-  if (savePlantNetwork(enabled, ip)) {
+  wifiToggle.disabled = true;
+  const saved = await savePlantNetwork(enabled, ip);
+  wifiToggle.disabled = false;
+  if (saved) {
     showMessage(enabled ? 'Control de red activado.' : 'Control de red desactivado. Ya se puede fichar desde cualquier conexión.');
   }
 });
 
-handleForm('plant-network-form', 'plant-network-error', () => {
+handleForm('plant-network-form', 'plant-network-error', async () => {
   if (!onPlantSettings()) return;
   const ip = get('plant-ip').value.trim();
   if (!ip) {
     setFormError('plant-network-error', 'Ingresá la IP pública de planta.');
     return;
   }
-  if (savePlantNetwork(readPlantNetwork().enabled, ip)) showMessage('IP de planta guardada.');
+  if (await savePlantNetwork(readPlantNetwork().enabled, ip)) showMessage('IP de planta guardada.');
 });
 
 get('use-plant-ip').addEventListener('click', async (event) => {
@@ -453,15 +393,12 @@ get('use-plant-ip').addEventListener('click', async (event) => {
   }
 });
 
-window.addEventListener('storage', (event) => {
-  if ((event.key === plantNetworkKey || event.key === null) && account && !get('home').hidden) renderPlantNetwork();
-});
-
 const punchDialog = get('punch-dialog');
 let pendingPunch;
+let savingPunch = false;
 
 async function canPunch() {
-  if (account?.role !== 'worker' || get('home').hidden || punch.disabled) return false;
+  if (account?.role !== 'worker' || get('home').hidden || punch.disabled || savingPunch) return false;
   if (!readPlantNetwork().enabled) return true;
   const session = sessionVersion;
   const check = ++connectionCheck;
@@ -491,9 +428,11 @@ async function canPunch() {
 
 punch.addEventListener('click', async () => {
   if (punchDialog.open || !(await canPunch()) || punchDialog.open) return;
-  const currentMarks = loadMarks(account.username);
-  const type = currentMarks[0]?.type === 'in' ? 'out' : 'in';
-  pendingPunch = { username: account.username, type, latest: currentMarks[0]?.at };
+  const date = plantDay(new Date());
+  const current = shiftSummary(loadMarks(account.username), date, date);
+  if (current.exit) return;
+  const type = current.entry ? 'out' : 'in';
+  pendingPunch = { username: account.username, type, date };
   const action = type === 'in' ? 'entrada' : 'salida';
   get('punch-dialog-title').textContent = `¿Confirmás tu ${action}?`;
   get('punch-dialog-message').textContent = `Tu ${action} se registrará con la hora de planta al confirmar.`;
@@ -511,35 +450,37 @@ get('punch-confirmation').addEventListener('submit', async (event) => {
   if (!request || !(await canPunch()) || request !== pendingPunch || request.username !== account?.username) return;
   pendingPunch = undefined;
 
-  marks = loadMarks(account.username);
-  if (marks[0]?.at !== request.latest || (marks[0]?.type === 'in' ? 'out' : 'in') !== request.type) {
-    renderShift(plantDay(new Date()));
-    showMessage('Tus fichadas cambiaron. Revisá el estado y volvé a intentar.', true);
+  if (request.date !== plantDay(new Date())) {
+    showMessage('Cambió la fecha. Volvé a abrir tu jornada.', true);
     return;
   }
-  const now = new Date();
-  const { type } = request;
-  const originalMarks = [{ type, at: now.toISOString() }, ...loadOriginalMarks(account.username)];
-  let stored = false;
+  const session = sessionVersion;
+  savingPunch = true;
+  punch.disabled = true;
   try {
-    localStorage.setItem(attendanceKey(account.username), JSON.stringify(originalMarks));
-    sessionMarks.delete(account.username);
-    stored = true;
+    const saved = await cloud.punch(request.username, request.date, request.type);
+    if (session !== sessionVersion) return;
+    if (saved) {
+      setWorkerDay(request.date, await cloud.readDay(request.username, request.date), request.username);
+      if (session === sessionVersion) showMessage(request.type === 'in' ? 'Entrada registrada.' : 'Salida registrada.');
+    } else {
+      showMessage('La jornada cambió. Revisá tus fichadas antes de volver a intentar.', true);
+    }
   } catch {
-    // Keep the mark visible for this session.
-    sessionMarks.set(account.username, originalMarks);
+    if (session === sessionVersion) showMessage('No pudimos confirmar la fichada. Revisá el estado antes de volver a intentar.', true);
+  } finally {
+    savingPunch = false;
+    if (session === sessionVersion) refreshAttendanceView();
   }
-
-  marks = loadMarks(account.username);
-  renderShift(plantDay(now));
-  const label = type === 'in' ? 'Entrada registrada' : 'Salida registrada';
-  const storageNote = stored ? '' : ' Disponible hasta que cierres o recargues la página.';
-  showMessage(`${label} a las ${timeFormat.format(now)}.${storageNote}`, !stored);
 });
 
 function showView(view) {
   const employer = account?.role === 'employer';
   if (!account || !(employer ? employerViews : workerViews).includes(view)) return;
+  if (view !== 'workers') {
+    get('issued-code').hidden = true;
+    get('issued-value').value = '';
+  }
   for (const panel of new Set([...workerViews, ...employerViews])) get(panel).hidden = panel !== view;
   get('employer-back').hidden = !employer || view === 'menu';
   document.querySelectorAll('.nav-item').forEach((item) => {
@@ -560,7 +501,10 @@ function showView(view) {
       renderWorkerAssignment();
     }
   }
-  if (view === 'profile') renderEmployeeProfile();
+  if (view === 'profile') {
+    renderEmployeeProfile();
+    loadWorkerHistory();
+  }
   if (view === 'menu') renderCorrectionCounter();
   if (view === 'corrections') renderEmployerCorrections();
   if (view === 'reports') openAttendanceReport();
@@ -575,60 +519,106 @@ function showView(view) {
 
 viewButtons.forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)));
 
-document.querySelectorAll('[data-demo-user]').forEach((button) => {
-  button.addEventListener('click', () => {
-    get('username').value = button.dataset.demoUser;
-    get('password').value = demoPassword;
-    get('access-error').hidden = true;
-    get('access-form').querySelector('button[type="submit"]').focus();
-  });
-});
-
-function showCredentialForm(kind = null) {
-  credentialFlow = kind ? { kind } : null;
-  const visible = Boolean(kind);
-  const recovery = kind === 'recovery';
-  const title = visible ? 'activation-title' : 'access-title';
-  get('activation-title').textContent = recovery ? 'Restablecer mi contraseña' : 'Activar mi cuenta';
-  get('credential-help').textContent = recovery
-    ? 'Ingresá tu DNI y el código de recuperación que te entregó el empleador. Después elegí una contraseña nueva.'
-    : 'Ingresá tu DNI y el código que te entregó el empleador.';
-  get('credential-code-label').textContent = recovery ? 'Código de recuperación' : 'Código de activación';
-  get('credential-submit-label').textContent = recovery ? 'Cambiar contraseña' : 'Activar cuenta';
-  get('sign-in-content').hidden = visible;
-  get('activation-content').hidden = !visible;
-  get('access').setAttribute('aria-labelledby', title);
-  get('activation-form').reset();
-  get('password').value = '';
-  setFormError('activation-error');
-  setFormError('access-error');
-  get(title).focus({ preventScroll: true });
-  window.scrollTo(0, 0);
+function setWorkerDay(day, entries, uid) {
+  if (account?.username !== uid) return;
+  const old = loadOriginalMarks(uid).filter(({ at }) => plantDay(new Date(at)) !== day);
+  portalMarks.set(uid, [...old, ...entries]);
 }
 
-get('activate-link').addEventListener('click', () => showCredentialForm('activation'));
-get('forgot-password').addEventListener('click', () => showCredentialForm('recovery'));
-get('return-to-login').addEventListener('click', () => showCredentialForm());
+function refreshAttendanceView() {
+  if (!account) return;
+  if (account.role === 'worker') {
+    marks = loadMarks(account.username);
+    renderShift(plantDay(new Date()));
+    if (!get('profile').hidden) renderEmployeeProfile();
+  } else {
+    if (!get('team').hidden) renderTeam();
+    if (!get('reports').hidden) renderAttendanceReport();
+  }
+}
 
-handleForm('access-form', 'access-error', async () => {
-  const username = get('username').value.trim().toLowerCase();
-  const password = get('password').value;
-  const identifier = username === 'operario' ? demoDni : username.replaceAll('.', '');
-  let match = accounts.find((item) => item.username === identifier && password === demoPassword);
-  const worker = readWorkers().find(({ dni }) => dni === identifier);
-  if (worker?.password && worker.password.digest === await secretDigest(password, worker.password.salt)) {
-    const current = readWorkers().find(({ dni }) => dni === identifier);
-    if (current?.password?.digest === worker.password.digest) {
-      match = { username: worker.dni, role: 'worker', name: worker.name, initials: worker.initials, detail: `DNI ${worker.dni}` };
+async function loadWorkerDay(date) {
+  if (account?.role !== 'worker' || !date) return;
+  const uid = account.username;
+  const session = sessionVersion;
+  const data = await cloud.readDay(uid, date);
+  if (session === sessionVersion) setWorkerDay(date, data, uid);
+}
+
+function loadWorkerHistory() {
+  if (historyLoad || account?.role !== 'worker') return;
+  const session = sessionVersion;
+  const today = plantDay(new Date());
+  const dates = Array.from({ length: 30 }, (_, index) => previousDay(today, index + 1));
+  historyLoad = Promise.all(dates.map(loadWorkerDay)).then(() => {
+    if (session === sessionVersion && !get('profile').hidden) renderEmployeeProfile();
+  }).catch(() => {
+    if (session === sessionVersion) {
+      historyLoad = undefined;
+      showMessage('No pudimos cargar todo el historial reciente. Volvé a abrir Mi perfil.', true);
     }
-  }
-  if (get('sign-in-content').hidden || account) return;
-  if (!match) {
-    setFormError('access-error', 'Los datos de ingreso no coinciden. Si olvidaste tu clave, elegí Olvidé mi contraseña.');
-    return;
-  }
+  });
+}
 
-  account = match;
+function startPortalWatch() {
+  stopPortal?.();
+  const session = sessionVersion;
+  const today = plantDay(new Date());
+  loadedToday = today;
+  stopPortal = cloud.watchPortal(account, today, (kind, value) => {
+    if (session !== sessionVersion) return;
+    const previous = portalState.get(kind);
+    if (kind === 'attendance') {
+      portalMarks.clear();
+      for (const { uid, marks: batch } of value) portalMarks.set(uid, [...loadOriginalMarks(uid), ...batch]);
+      attendanceReady = true;
+    } else if (kind === 'today') {
+      setWorkerDay(value.day, value.marks, account.username);
+      attendanceReady = true;
+    } else if (kind === 'staffSchedules') {
+      portalState.set(kind, Object.fromEntries(value.map(({ id, ...profile }) => [id, profile])));
+    } else {
+      portalState.set(kind, value);
+    }
+    if (['today', 'attendance', 'staff', 'absences', 'corrections', 'schedule', 'staffSchedules', 'calendar'].includes(kind)) {
+      refreshAttendanceView();
+    }
+    if (kind === 'network' && !get('home').hidden) {
+      if (account.role === 'employer' && document.activeElement !== get('plant-ip')) get('plant-ip').value = value?.ip ?? '';
+      renderPlantNetwork();
+      if (account.role === 'worker') refreshAttendanceView();
+    }
+    if (['schedule', 'staffSchedules'].includes(kind)) {
+      if (account.role === 'worker' && !get('home').hidden) renderWorkerAssignment();
+      if (!get('factory-hours').hidden) renderFactorySchedule();
+    }
+    if (['staff', 'staffSchedules'].includes(kind) && !get('workers').hidden) renderWorkers();
+    if (kind === 'staff' && !get('reports').hidden) openAttendanceReport();
+    if (kind === 'staff' && !get('absences').hidden) renderAbsenceWorkers();
+    if (['staff', 'absences'].includes(kind) && !get('absence-summary').hidden) renderAbsenceReport();
+    if (kind === 'calendar' && !get('calendar').hidden) renderFactoryCalendar();
+    if (kind === 'corrections') {
+      renderCorrectionCounter();
+      if (!get('corrections').hidden) renderEmployerCorrections();
+      if (account.role === 'worker') {
+        const known = new Map((previous ?? []).map(({ id, status }) => [id, status]));
+        const changedDays = new Set(value.filter((item) => item.status === 'approved' && known.get(item.id) !== 'approved')
+          .map((item) => item.date));
+        if (changedDays.size) Promise.all([...changedDays].map(loadWorkerDay)).then(() => {
+          if (session === sessionVersion) refreshAttendanceView();
+        }).catch(() => {
+          if (session === sessionVersion) showMessage('No pudimos cargar una fichada corregida.', true);
+        });
+      }
+    }
+  }, () => {
+    if (session === sessionVersion) showMessage('No pudimos sincronizar todos los datos. Revisá la conexión.', true);
+  });
+}
+
+function enterPortal(match) {
+  account = { ...match, initials: match.name.trim().split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase(),
+    detail: match.role === 'employer' ? 'Administración' : match.dni ? 'DNI ' + match.dni : 'Personal' };
   const employer = account.role === 'employer';
   get('access-form').reset();
   get('portal-label').textContent = employer ? 'Portal del empleador' : 'Portal del personal';
@@ -641,54 +631,116 @@ handleForm('access-form', 'access-error', async () => {
   get('access').hidden = true;
   get('workspace').hidden = false;
   get('rail').hidden = false;
+  startPortalWatch();
   showView(employer ? 'menu' : 'home');
+}
+
+get('forgot-password').addEventListener('click', async () => {
+  const button = get('forgot-password');
+  const email = get('username').value.trim();
+  if (!cloud || button.disabled) return;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    setFormError('access-error', 'Si entrás con DNI, pedile a Administración que restablezca tu clave. Para recuperar el acceso de empleador, ingresá tu correo y tocá esta opción.');
+    return;
+  }
+  button.disabled = true;
+  try {
+    await cloud.recoverEmployer(email);
+    showMessage('Si el correo corresponde a una cuenta, vas a recibir un enlace para cambiar la contraseña.');
+  } catch (error) {
+    if (error.code === 'auth/user-not-found') showMessage('Si el correo corresponde a una cuenta, vas a recibir un enlace para cambiar la contraseña.');
+    else setFormError('access-error', 'No se pudo solicitar el correo. Volvé a intentar.');
+  } finally {
+    button.disabled = false;
+  }
 });
 
-async function createWorkerCode() {
-  const code = hex(crypto.getRandomValues(new Uint8Array(4))).toUpperCase();
-  const secret = await protectSecret(code);
-  return { code, credential: { ...secret, expires: Date.now() + 24 * 60 * 60 * 1000 } };
-}
+handleForm('access-form', 'access-error', async () => {
+  if (!cloud || account) return;
+  try {
+    const match = await cloud.login(get('username').value.trim(), get('password').value);
+    if (match) enterPortal(match);
+    else setFormError('access-error', 'La cuenta todavía no está habilitada. Consultá con Administración.');
+  } catch (error) {
+    const invalid = ['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email'];
+    setFormError('access-error', invalid.includes(error.code)
+      ? 'El usuario o la contraseña no coinciden.'
+      : 'No pudimos iniciar sesión. Revisá la conexión y volvé a intentar.');
+  }
+});
 
-async function issueCode(dni, newWorker) {
-  const origin = newWorker ? 'worker-add' : 'workers';
-  const { code, credential } = await createWorkerCode();
-  if (account?.role !== 'employer' || get(origin).hidden) return;
-
-  const workers = readWorkers();
-  const worker = workers.find((item) => item.dni === dni);
-  if (newWorker && (dni === demoDni || worker)) {
-    setFormError('worker-error', 'Ya existe una cuenta con ese DNI.');
+async function bootPortal() {
+  const button = get('access-form').querySelector('button[type="submit"]');
+  if (location.protocol === 'file:') {
+    get('published-portal').hidden = false;
+    setFormError('access-error', 'Abrí el portal publicado para iniciar sesión con Firebase.');
     return;
   }
-  if (!newWorker && (!worker || worker.password)) {
-    renderWorkers();
-    setFormError('worker-code-error', 'Esta cuenta ya no está pendiente de activación.');
+  try {
+    cloud = await import('./portal-firebase.js');
+    const match = await cloud.resume();
+    if (match) enterPortal(match);
+  } catch {
+    setFormError('access-error', 'No pudimos conectar con el portal. Recargá la página para reintentar.');
+  } finally {
+    button.disabled = !cloud;
+  }
+}
+
+const passwordDialog = get('password-change-dialog');
+const passwordForm = get('password-change-form');
+const passwordButton = get('submit-password-change');
+const passwordCancel = get('cancel-password-change');
+
+get('open-password-change').addEventListener('click', () => {
+  if (account?.role !== 'worker') return;
+  passwordForm.reset();
+  setFormError('password-change-error');
+  passwordDialog.showModal();
+  get('password-current').focus();
+});
+passwordCancel.addEventListener('click', () => passwordDialog.close());
+passwordDialog.addEventListener('cancel', (event) => {
+  if (passwordButton.disabled) event.preventDefault();
+});
+passwordDialog.addEventListener('close', () => {
+  passwordForm.reset();
+  setFormError('password-change-error');
+});
+handleForm('password-change-form', 'password-change-error', async () => {
+  if (account?.role !== 'worker' || !passwordDialog.open) return;
+  const current = get('password-current').value;
+  const next = get('password-new').value;
+  if (Array.from(next).length < 8 || next.length > 128 || !/\p{L}/u.test(next) || !/\d/.test(next)) {
+    setFormError('password-change-error', 'Usá al menos 8 caracteres con letras y números.');
     return;
   }
-
-  const target = newWorker || worker;
-  target.activation = credential;
-  if (newWorker) workers.push(newWorker);
-  localStorage.setItem(workersKey, JSON.stringify(workers));
-  get('issued-name').textContent = `Código para ${target.name}`;
-  get('issued-value').value = code;
-  get('issued-code').hidden = false;
-  if (newWorker) {
-    get('worker-form').reset();
-    showView('workers');
-  } else renderWorkers();
-  get('issued-code').focus();
-}
+  if (next === current || next !== get('password-repeat').value) {
+    setFormError('password-change-error', next === current
+      ? 'Elegí una contraseña distinta de la actual.' : 'Las contraseñas nuevas no coinciden.');
+    return;
+  }
+  passwordCancel.disabled = true;
+  try {
+    await cloud.changePassword(current, next);
+    passwordForm.reset();
+    passwordDialog.close();
+    showMessage('Contraseña actualizada.');
+  } catch (error) {
+    const invalid = ['auth/invalid-credential', 'auth/wrong-password', 'auth/invalid-login-credentials'];
+    setFormError('password-change-error', invalid.includes(error.code)
+      ? 'La contraseña actual no coincide.' : 'No pudimos cambiar la contraseña. Volvé a intentar.');
+  } finally {
+    passwordCancel.disabled = false;
+  }
+});
 
 function renderWorkers() {
-  const accountsByDni = new Map(readWorkers().map((worker) => [worker.dni, worker]));
   const profiles = readReportSetting(workerProfilesKey, {});
   const rows = staffDirectory().map((worker) => {
-    const registered = accountsByDni.get(worker.id);
     const row = document.createElement('li');
     row.className = 'worker-row';
-    row.innerHTML = '<div><button type="button" class="worker-profile-link"><strong></strong><small></small></button></div><span class="team-status"></span><button type="button" class="history-link worker-code" hidden>Nuevo código</button>';
+    row.innerHTML = '<div><button type="button" class="worker-profile-link"><strong></strong><small></small></button></div><span class="team-status"></span>';
     const profile = row.querySelector('.worker-profile-link');
     profile.querySelector('strong').textContent = worker.name;
     const position = profiles[worker.id]?.position;
@@ -697,25 +749,8 @@ function renderWorkers() {
     profile.setAttribute('aria-haspopup', 'dialog');
     const status = row.querySelector('.team-status');
     status.dataset.state = worker.active ? 'open' : 'waiting';
-    status.textContent = worker.active ? 'Activa' : registered?.activation?.expires > Date.now() ? 'Pendiente de activación' : 'Código vencido';
+    status.textContent = 'Activa';
     profile.addEventListener('click', () => openScheduleEditor(worker, status.textContent));
-    if (registered && !worker.active) {
-      const button = row.querySelector('.worker-code');
-      button.hidden = false;
-      button.setAttribute('aria-label', `Generar nuevo código para ${worker.name}`);
-      button.addEventListener('click', async () => {
-        if (button.disabled) return;
-        button.disabled = true;
-        setFormError('worker-code-error');
-        try {
-          await issueCode(worker.id);
-        } catch {
-          setFormError('worker-code-error', 'No se pudo generar un código nuevo. Volvé a intentar.');
-        } finally {
-          button.disabled = false;
-        }
-      });
-    }
     return row;
   });
   get('workers-list').replaceChildren(...rows);
@@ -730,7 +765,54 @@ handleForm('worker-form', 'worker-error', async () => {
     setFormError('worker-error', 'Completá el nombre, el apellido y un DNI de 7 u 8 números.');
     return;
   }
-  await issueCode(dni, { dni, name: `${first} ${last}`, initials: `${first[0]}${last[0]}`.toUpperCase(), createdOn: plantDay(new Date()) });
+  const name = first + ' ' + last;
+  if (name.length > 120) {
+    setFormError('worker-error', 'El nombre completo puede tener hasta 120 caracteres.');
+    return;
+  }
+  if (workerDraft && (workerDraft.dni !== dni || workerDraft.name !== name)) {
+    setFormError('worker-error', 'Terminá el alta pendiente con el mismo nombre y DNI.');
+    return;
+  }
+  const draft = workerDraft ??= {
+    dni, name, employer: account.username, createdOn: plantDay(new Date()),
+    password: 'Aa7' + hex(crypto.getRandomValues(new Uint8Array(9))),
+  };
+  const session = sessionVersion;
+  try {
+    const created = await cloud.createWorker(draft);
+    if (session !== sessionVersion) return;
+    const staff = (portalState.get('staff') ?? []).filter((item) => item.id !== created.id);
+    portalState.set('staff', [...staff, created]);
+    workerDraft = undefined;
+    get('issued-name').textContent = 'Clave inicial de ' + name;
+    get('issued-value').value = draft.password;
+    get('issued-code').hidden = false;
+    get('worker-form').reset();
+    showView('workers');
+    get('issued-code').focus();
+  } catch (error) {
+    if (session !== sessionVersion) return;
+    if (!draft.uid && !draft.uncertain) workerDraft = undefined;
+    setFormError('worker-error', error.code === 'auth/email-already-in-use' && !draft.uncertain
+      ? 'Ya existe una cuenta con ese DNI.'
+      : 'No se pudo confirmar el alta. Volvé a intentar desde esta pestaña.');
+  }
+});
+
+get('copy-issued-password').addEventListener('click', async () => {
+  const output = get('issued-value');
+  if (!output.value) return;
+  try {
+    await navigator.clipboard.writeText(output.value);
+    showMessage('Clave copiada.');
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents(output);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
 });
 
 function renderAbsenceWorkers(selectMatch = false) {
@@ -859,7 +941,7 @@ get('absence-search').addEventListener('input', () => renderAbsenceWorkers(true)
 get('absence-worker').addEventListener('change', renderAbsenceForm);
 get('absence-date').addEventListener('change', renderAbsenceForm);
 
-handleForm('absence-form', 'absence-error', () => {
+handleForm('absence-form', 'absence-error', async () => {
   if (account?.role !== 'employer' || get('absences').hidden) return;
   const workerId = get('absence-worker').value;
   const date = get('absence-date').value;
@@ -874,58 +956,31 @@ handleForm('absence-form', 'absence-error', () => {
   const absence = { workerId, date, reason, note: get('absence-note').value.trim(), certificate: get('absence-certificate').checked };
   if (index < 0) absences.push(absence);
   else absences[index] = absence;
-  localStorage.setItem(absencesKey, JSON.stringify(absences));
+  const session = sessionVersion;
+  await cloud.saveRecord('staffAbsences', workerId + '_' + date, absence);
+  if (session !== sessionVersion) return;
+  portalState.set(absencesKey, absences);
   renderAbsenceForm();
   showMessage(index < 0 ? 'Ausencia registrada.' : 'Cambios guardados.');
 });
 
-handleForm('activation-form', 'activation-error', async () => {
-  const flow = credentialFlow;
-  if (!flow || account) return;
-  const recovery = flow.kind === 'recovery';
-  const dni = get('activation-dni').value;
-  const code = get('activation-code').value.trim().toUpperCase();
-  const password = get('activation-password').value;
-  if (password.length < 15 || password.length > 128 || password !== get('activation-confirm').value) {
-    setFormError('activation-error', 'Usá una contraseña de 15 a 128 caracteres y repetila igual.');
-    return;
-  }
-
-  const invalidCode = 'El DNI o el código son incorrectos, o el código ya no está vigente.';
-  const target = readWorkers().find((item) => item.dni === dni);
-  const credential = target?.[flow.kind];
-  const validCode = credential && Boolean(target.password) === recovery && credential.expires > Date.now()
-    && credential.digest === await secretDigest(code, credential.salt);
-  if (credentialFlow !== flow || account) return;
-  if (!validCode) {
-    setFormError('activation-error', invalidCode);
-    return;
-  }
-
-  const protectedPassword = await protectSecret(password);
-  if (credentialFlow !== flow || account) return;
-  const workers = readWorkers();
-  const worker = workers.find((item) => item.dni === dni);
-  const current = worker?.[flow.kind];
-  if (!current || current.digest !== credential.digest || current.expires <= Date.now() || Boolean(worker.password) !== recovery) {
-    setFormError('activation-error', invalidCode);
-    return;
-  }
-  worker.password = protectedPassword;
-  delete worker[flow.kind];
-  localStorage.setItem(workersKey, JSON.stringify(workers));
-  showCredentialForm();
-  get('username').value = dni;
-  get('password').focus();
-  showMessage(recovery ? 'Contraseña actualizada. Ya podés ingresar con tu DNI y la nueva clave.' : 'Cuenta activada. Ya podés entrar con tu DNI y contraseña.');
-});
-
-get('sign-out').addEventListener('click', () => {
+get('sign-out').addEventListener('click', async () => {
+  if (!account) return;
+  try { await cloud.logout(); }
+  catch { showMessage('No pudimos cerrar la sesión. Volvé a intentar.', true); return; }
   sessionVersion++;
+  stopPortal?.();
+  stopPortal = undefined;
+  portalState.clear();
+  portalMarks.clear();
+  workerDraft = undefined;
+  historyLoad = undefined;
+  attendanceReady = false;
   account = null;
   marks = [];
   pendingPunch = undefined;
   if (punchDialog.open) punchDialog.close();
+  if (passwordDialog.open) passwordDialog.close();
   clearTimeout(toastTimer);
   get('toast').hidden = true;
   get('announcement').textContent = '';
@@ -941,7 +996,6 @@ get('sign-out').addEventListener('click', () => {
   get('absence-month').value = displayedDay.slice(0, 7);
   get('month-workers').replaceChildren();
   setFormError('worker-error');
-  setFormError('worker-code-error');
   get('issued-value').value = '';
   get('issued-code').hidden = true;
   get('access').hidden = false;
@@ -970,4 +1024,12 @@ get('clear-team-status').addEventListener('click', () => {
 });
 
 updateClock();
-setInterval(updateClock, 1000);
+setInterval(() => {
+  updateClock();
+  if (account?.role === 'worker' && loadedToday !== displayedDay) {
+    attendanceReady = false;
+    refreshAttendanceView();
+    startPortalWatch();
+  }
+}, 1000);
+bootPortal();

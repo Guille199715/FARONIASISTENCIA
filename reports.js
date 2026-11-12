@@ -1,6 +1,6 @@
-const reportSettingsKey = 'faroni.demo.report-settings.v1';
-const workerProfilesKey = 'faroni.demo.worker-profiles.v1';
-const factoryCalendarKey = 'faroni.demo.factory-calendar.v1';
+const reportSettingsKey = 'schedule';
+const workerProfilesKey = 'staffSchedules';
+const factoryCalendarKey = 'calendar';
 const defaultSchedule = { start: '08:00', end: '16:00', grace: 0, days: [1, 2, 3, 4, 5] };
 const weekdayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 const weekdaysInOrder = [1, 2, 3, 4, 5, 6, 0];
@@ -16,11 +16,7 @@ let scheduleEditorWorker;
 let personalScheduleDraft;
 
 function readReportSetting(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key)) ?? fallback;
-  } catch {
-    return fallback;
-  }
+  return portalState.get(key) ?? fallback;
 }
 
 function reportDate(day) {
@@ -150,10 +146,6 @@ function openScheduleEditor(worker = null, status = '') {
   if (account?.role !== 'employer' || get('schedule-dialog').open) return;
   scheduleEditorWorker = worker ? { ...worker } : null;
   setFormError('schedule-editor-error');
-  setFormError('recovery-issue-error');
-  get('issued-recovery').hidden = true;
-  get('issued-recovery-value').value = '';
-  get('issue-recovery').hidden = !worker || !readWorkers().some((item) => item.dni === worker.id && item.password);
   const profileFields = get('schedule-profile-fields');
   profileFields.hidden = !worker;
   profileFields.disabled = !worker;
@@ -287,6 +279,13 @@ function reportScheduleLine(report) {
 
 function renderAttendanceReport() {
   if (account?.role !== 'employer' || get('reports').hidden) return;
+  if (!attendanceReady || !['staff', 'absences', 'calendar', 'schedule', 'staffSchedules', 'corrections'].every((key) => portalState.has(key))) {
+    displayedReport = undefined;
+    setFormError('report-error', 'Cargando los datos de asistencia…');
+    get('export-attendance-xlsx').disabled = true;
+    get('export-attendance-pdf').disabled = true;
+    return;
+  }
   const days = reportDates(...selectedAttendanceRange());
   if (!days.length || days.length > 366) {
     setFormError('report-error', 'Elegí un período válido de hasta 366 días, con la fecha final igual o posterior a la inicial.');
@@ -397,16 +396,19 @@ function closureRow(closure, editable) {
     remove.type = 'button';
     remove.className = 'history-link';
     remove.textContent = 'Quitar';
-    remove.addEventListener('click', () => {
+    remove.addEventListener('click', async () => {
       if (account?.role !== 'employer' || !window.confirm('¿Quitar este registro del calendario de fábrica?')) return;
       try {
         const calendar = readReportSetting(factoryCalendarKey, []);
-        localStorage.setItem(factoryCalendarKey, JSON.stringify(calendar.filter(({ id }) => id !== closure.id)));
+        const session = sessionVersion;
+        await cloud.saveRecord('plantClosures', closure.id, null);
+        if (session !== sessionVersion) return;
+        portalState.set(factoryCalendarKey, calendar.filter(({ id }) => id !== closure.id));
         if (editingClosure === closure.id) setClosureForm();
         renderFactoryCalendar();
         renderAttendanceReport();
       } catch {
-        setFormError('closure-error', 'No se pudo guardar el cambio en el navegador.');
+        setFormError('closure-error', 'No se pudo guardar el cambio.');
       }
     });
     row.append(edit, remove);
@@ -463,60 +465,35 @@ get('inherit-schedule').addEventListener('click', () => {
 get('add-schedule-group').addEventListener('click', () => appendScheduleGroup().querySelector('[name="workday"]').focus());
 get('cancel-schedule').addEventListener('click', () => get('schedule-dialog').close());
 
-get('issue-recovery').addEventListener('click', async () => {
-  const target = scheduleEditorWorker;
-  const button = get('issue-recovery');
-  if (!target || account?.role !== 'employer' || button.hidden || button.disabled || !get('schedule-dialog').open) return;
-  button.disabled = true;
-  setFormError('recovery-issue-error');
-  get('issued-recovery').hidden = true;
-  try {
-    const { code, credential } = await createWorkerCode();
-    if (account?.role !== 'employer' || scheduleEditorWorker !== target || !get('schedule-dialog').open) return;
-    const workers = readWorkers();
-    const worker = workers.find((item) => item.dni === target.id && item.password);
-    if (!worker) {
-      setFormError('recovery-issue-error', 'La cuenta debe estar activa para generar un código de recuperación.');
-      return;
-    }
-    worker.recovery = credential;
-    localStorage.setItem(workersKey, JSON.stringify(workers));
-    get('issued-recovery-value').value = code;
-    get('issued-recovery').hidden = false;
-    get('issued-recovery').focus();
-  } catch {
-    if (scheduleEditorWorker === target && get('schedule-dialog').open) {
-      setFormError('recovery-issue-error', 'No se pudo generar el código. Volvé a intentar.');
-    }
-  } finally {
-    button.disabled = false;
-  }
-});
-
-handleForm('schedule-editor-form', 'schedule-editor-error', () => {
+handleForm('schedule-editor-form', 'schedule-editor-error', async () => {
   if (account?.role !== 'employer' || !get('schedule-dialog').open) return;
+  const session = sessionVersion;
   let schedule = personalScheduleDraft;
   if (!get('schedule-hours').disabled) {
     schedule = readScheduleGroups();
     if (!schedule) return;
   }
   if (scheduleEditorWorker) {
-    const profiles = readReportSetting(workerProfilesKey, {});
-    profiles[scheduleEditorWorker.id] = { position: get('profile-position').value.trim(), schedule };
-    localStorage.setItem(workerProfilesKey, JSON.stringify(profiles));
+    const uid = scheduleEditorWorker.id;
+    const profile = { position: get('profile-position').value.trim(), schedule: schedule ?? null };
+    await cloud.saveRecord('staffSchedules', uid, profile);
+    if (session !== sessionVersion) return;
+    portalState.set(workerProfilesKey, { ...readReportSetting(workerProfilesKey, {}), [uid]: profile });
     get('schedule-dialog').close();
     renderWorkers();
     get('workers-title').focus();
     showMessage('Perfil del empleado guardado.');
   } else {
-    localStorage.setItem(reportSettingsKey, JSON.stringify(schedule));
+    await cloud.saveSetting(reportSettingsKey, schedule);
+    if (session !== sessionVersion) return;
+    portalState.set(reportSettingsKey, schedule);
     get('schedule-dialog').close();
     renderFactorySchedule();
     showMessage('Horario general guardado.');
   }
 });
 
-handleForm('closure-form', 'closure-error', () => {
+handleForm('closure-form', 'closure-error', async () => {
   if (account?.role !== 'employer' || get('calendar').hidden) return;
   const from = get('closure-from').value;
   const to = get('closure-to').value;
@@ -532,7 +509,11 @@ handleForm('closure-form', 'closure-error', () => {
   }
   const id = editingClosure || hex(crypto.getRandomValues(new Uint8Array(12)));
   const closure = { id, from, to, type, note: get('closure-note').value.trim() };
-  localStorage.setItem(factoryCalendarKey, JSON.stringify([...calendar.filter((item) => item.id !== id), closure]));
+  const { id: closureId, ...data } = closure;
+  const session = sessionVersion;
+  await cloud.saveRecord('plantClosures', closureId, data);
+  if (session !== sessionVersion) return;
+  portalState.set(factoryCalendarKey, [...calendar.filter((item) => item.id !== id), closure]);
   setClosureForm();
   renderFactoryCalendar();
   renderAttendanceReport();

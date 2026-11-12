@@ -1,23 +1,20 @@
-const correctionsKey = 'faroni.demo.corrections.v1';
 const correctionStatus = { pending: 'Pendiente', approved: 'Aprobada', rejected: 'Rechazada' };
 const markLabels = { in: 'Entrada', out: 'Salida' };
 
 function readCorrections() {
-  return readReportSetting(correctionsKey, []);
+  return [...(portalState.get('corrections') ?? [])]
+    .sort((a, b) => (a.reviewedAt ?? a.createdAt ?? a.at).localeCompare(b.reviewedAt ?? b.createdAt ?? b.at));
 }
 
-function loadMarks(username, now = new Date()) {
-  const records = loadOriginalMarks(username, now).slice();
-  for (const request of readCorrections()) {
-    if (request.workerId !== username || request.status !== 'approved') continue;
-    const corrected = { type: request.type, at: request.at, correctionId: request.id, manual: Boolean(request.manual) };
-    if (!request.previousAt) records.push(corrected);
-    else {
-      const index = records.findIndex((record) => record.at === request.previousAt && record.type === request.type);
-      if (index >= 0) records[index] = corrected;
-    }
+function loadMarks(uid) {
+  const adjustments = new Map();
+  for (const item of readCorrections()) {
+    if (item.workerId === uid && item.status === 'approved') adjustments.set(item.type + item.at, item);
   }
-  return records.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  return loadOriginalMarks(uid).map((mark) => {
+    const adjustment = adjustments.get(mark.type + mark.at);
+    return adjustment ? { ...mark, correctionId: adjustment.id, manual: Boolean(adjustment.manual) } : mark;
+  }).sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
 
 function marksOnDate(workerId, date) {
@@ -29,6 +26,9 @@ function correctionConflict(request, now = new Date()) {
   const records = marksOnDate(request.workerId, request.date);
   const index = records.findIndex((mark) => mark.at === request.previousAt && mark.type === request.type);
   if (request.previousAt && index < 0) return 'La fichada original cambió. Hacé una solicitud sobre el registro actual.';
+  if (!request.previousAt && records.some((mark) => mark.type === request.type)) {
+    return 'Ya hay una fichada de ese tipo. Seleccioná la existente para corregirla.';
+  }
   const corrected = { type: request.type, at: request.at };
   if (index >= 0) records[index] = corrected;
   else records.push(corrected);
@@ -121,10 +121,16 @@ function renderEmployerCorrections() {
       continue;
     }
     const form = get('correction-review-template').content.firstElementChild.cloneNode(true);
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const error = form.querySelector('.form-error');
-      const message = reviewCorrection(request.id, event.submitter?.value, form.elements['decision-note'].value.trim());
+      const submitter = event.submitter;
+      const status = submitter?.value;
+      const buttons = [...form.querySelectorAll('button')];
+      if (buttons.some((button) => button.disabled)) return;
+      buttons.forEach((button) => { button.disabled = true; });
+      const message = await reviewCorrection(request.id, status, form.elements['decision-note'].value.trim());
+      buttons.forEach((button) => { button.disabled = false; });
       if (message) {
         error.textContent = message;
         error.hidden = false;
@@ -139,7 +145,7 @@ function renderEmployerCorrections() {
   get('reviewed-correction-list').replaceChildren(...reviewed);
 }
 
-function reviewCorrection(id, status, note) {
+async function reviewCorrection(id, status, note) {
   if (account?.role !== 'employer' || get('corrections').hidden || !['approved', 'rejected'].includes(status)) return '';
   if (!note) return 'Ingresá el motivo de la decisión.';
   const requests = readCorrections();
@@ -149,9 +155,12 @@ function reviewCorrection(id, status, note) {
     const conflict = correctionConflict(request);
     if (conflict) return conflict;
   }
-  Object.assign(request, { status, decisionNote: note, reviewer: account.name, reviewedAt: new Date().toISOString() });
+  const review = { status, decisionNote: note, reviewer: account.name, reviewedAt: new Date().toISOString() };
   try {
-    localStorage.setItem(correctionsKey, JSON.stringify(requests));
+    const saved = status === 'approved'
+      ? await cloud.applyCorrection({ ...request, ...review })
+      : await cloud.reviewCorrection(id, review);
+    if (!saved) return 'Las fichadas o la solicitud cambiaron. Revisá los datos y volvé a intentar.';
   } catch {
     return 'No se pudo guardar la decisión. Volvé a intentar.';
   }
@@ -228,9 +237,11 @@ handleForm('manual-form', 'manual-error', () => {
   get('back-manual').focus();
 });
 
-get('confirm-manual').addEventListener('click', () => {
+get('confirm-manual').addEventListener('click', async () => {
   const dialog = get('manual-adjustment');
   if (account?.role !== 'employer' || !dialog.open || get('team').hidden || !manualDraft) return;
+  const confirm = get('confirm-manual');
+  if (confirm.disabled) return;
   const { request, snapshot } = manualDraft;
   if (JSON.stringify(marksOnDate(request.workerId, request.date)) !== snapshot) {
     setFormError('manual-error', 'Las fichadas cambiaron. Volvé a editar para revisar los horarios actuales.');
@@ -241,19 +252,21 @@ get('confirm-manual').addEventListener('click', () => {
     setFormError('manual-error', conflict);
     return;
   }
+  confirm.disabled = true;
   try {
-    const recordsKey = attendanceKey(request.workerId);
-    if ((request.workerId === demoDni || manualTarget.worker.entry) && !localStorage.getItem(recordsKey)) {
-      localStorage.setItem(recordsKey, JSON.stringify(loadOriginalMarks(request.workerId)));
-    }
-    const adjustment = {
+    const saved = await cloud.applyCorrection({
       ...request, id: hex(crypto.getRandomValues(new Uint8Array(12))), manual: true, status: 'approved',
       reviewer: account.name, reviewedAt: new Date().toISOString(),
-    };
-    localStorage.setItem(correctionsKey, JSON.stringify([...readCorrections(), adjustment]));
+    });
+    if (!saved) {
+      setFormError('manual-error', 'Las fichadas cambiaron. Volvé a editar el ajuste.');
+      return;
+    }
   } catch {
     setFormError('manual-error', 'No se pudo guardar el ajuste. Volvé a intentar.');
     return;
+  } finally {
+    confirm.disabled = false;
   }
   manualDraft = null;
   dialog.close();
@@ -262,13 +275,18 @@ get('confirm-manual').addEventListener('click', () => {
   showMessage('Ajuste manual guardado.');
 });
 
-get('correction-date').addEventListener('change', () => {
+get('correction-date').addEventListener('change', async () => {
   get('correction-mark').value = '';
   get('correction-time').value = '';
-  refreshCorrectionChoices();
+  try {
+    await loadWorkerDay(get('correction-date').value);
+    if (account?.role === 'worker') refreshCorrectionChoices();
+  } catch {
+    setFormError('correction-error', 'No pudimos consultar esa fecha.');
+  }
 });
 
-handleForm('correction-form', 'correction-error', () => {
+handleForm('correction-form', 'correction-error', async () => {
   if (account?.role !== 'worker' || get('profile').hidden) return;
   const date = get('correction-date').value;
   const time = get('correction-time').value;
@@ -284,7 +302,7 @@ handleForm('correction-form', 'correction-error', () => {
     setFormError('correction-error', 'Ya hay una solicitud pendiente para esta fecha.');
     return;
   }
-  const request = { ...draft, id: hex(crypto.getRandomValues(new Uint8Array(12))), status: 'pending' };
+  const request = { ...draft, id: hex(crypto.getRandomValues(new Uint8Array(12))), status: 'pending', createdAt: new Date().toISOString() };
   if (draft.previousAt && markTime({ at: draft.previousAt }) === time) {
     setFormError('correction-error', 'Ingresá una hora distinta de la fichada original.');
     return;
@@ -294,10 +312,7 @@ handleForm('correction-form', 'correction-error', () => {
     setFormError('correction-error', conflict);
     return;
   }
-  if (account.username === demoDni && !localStorage.getItem(attendanceKey(demoDni))) {
-    localStorage.setItem(attendanceKey(demoDni), JSON.stringify(loadOriginalMarks(demoDni)));
-  }
-  localStorage.setItem(correctionsKey, JSON.stringify([...requests, request]));
+  await cloud.addCorrection(request);
   get('correction-form').reset();
   get('correction-details').open = false;
   get('correction-details').querySelector('summary').focus();
