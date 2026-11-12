@@ -144,6 +144,10 @@ function updateProfileScheduleSummary() {
 
 function openScheduleEditor(worker = null, status = '') {
   if (account?.role !== 'employer' || get('schedule-dialog').open) return;
+  if (worker && !portalState.has('staffRecoveryContacts')) {
+    showMessage('Todavía estamos cargando el perfil. Volvé a intentar.', true);
+    return;
+  }
   scheduleEditorWorker = worker ? { ...worker } : null;
   setFormError('schedule-editor-error');
   const profileFields = get('schedule-profile-fields');
@@ -156,6 +160,8 @@ function openScheduleEditor(worker = null, status = '') {
     get('schedule-profile-id').textContent = worker.label;
     get('schedule-profile-status').textContent = status;
     get('profile-position').value = profile?.position ?? '';
+    get('profile-recovery-email').value = (portalState.get('staffRecoveryContacts') ?? [])
+      .find((contact) => contact.id === worker.id)?.email ?? '';
     get('save-schedule').textContent = 'Guardar perfil';
     updateProfileScheduleSummary();
     setScheduleHours(null);
@@ -164,6 +170,7 @@ function openScheduleEditor(worker = null, status = '') {
     get('save-schedule').textContent = 'Guardar horario';
     setScheduleHours(readReportSetting(reportSettingsKey, defaultSchedule));
   }
+  renderAccessReset(worker?.id);
   get('schedule-dialog').showModal();
 }
 
@@ -476,9 +483,12 @@ handleForm('schedule-editor-form', 'schedule-editor-error', async () => {
   if (scheduleEditorWorker) {
     const uid = scheduleEditorWorker.id;
     const profile = { position: get('profile-position').value.trim(), schedule: schedule ?? null };
-    await cloud.saveRecord('staffSchedules', uid, profile);
+    const email = get('profile-recovery-email').value.trim();
+    await cloud.saveWorkerSettings(uid, profile, email);
     if (session !== sessionVersion) return;
     portalState.set(workerProfilesKey, { ...readReportSetting(workerProfilesKey, {}), [uid]: profile });
+    const contacts = (portalState.get('staffRecoveryContacts') ?? []).filter((item) => item.id !== uid);
+    portalState.set('staffRecoveryContacts', [...contacts, { id: uid, email }]);
     get('schedule-dialog').close();
     renderWorkers();
     get('workers-title').focus();

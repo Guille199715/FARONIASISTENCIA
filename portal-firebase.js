@@ -1,8 +1,8 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
 import {
-  browserSessionPersistence, createUserWithEmailAndPassword, EmailAuthProvider, getAuth,
-  initializeAuth, inMemoryPersistence, reauthenticateWithCredential, sendPasswordResetEmail,
-  setPersistence, signInWithEmailAndPassword, signOut, updatePassword,
+  browserSessionPersistence, confirmPasswordReset, createUserWithEmailAndPassword, getAuth,
+  initializeAuth, inMemoryPersistence, sendPasswordResetEmail, setPersistence,
+  signInWithEmailAndPassword, signOut, verifyPasswordResetCode,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import {
   collection, collectionGroup, doc, getDocFromServer, getFirestore, onSnapshot, query,
@@ -26,6 +26,13 @@ async function accountFor(user) {
   if (!profile || !['worker', 'employer'].includes(profile.role) || typeof profile.name !== 'string') {
     await signOut(auth);
     return null;
+  }
+  if (profile.role === 'worker' && profile.accessResetAfter) {
+    const { authTime } = await user.getIdTokenResult();
+    if (Date.parse(authTime) < profile.accessResetAfter * 1000) {
+      await signOut(auth);
+      return null;
+    }
   }
   const dni = profile.dni ?? (/^([0-9]{7,8})@personal\.asistencia-faroni\.web\.app$/.exec(user.email ?? '')?.[1]);
   return { username: user.uid, name: profile.name, role: profile.role, dni };
@@ -54,12 +61,32 @@ export function recoverEmployer(email) {
   return sendPasswordResetEmail(auth, email);
 }
 
-export async function changePassword(current, next) {
-  const user = auth.currentUser;
-  if (!user?.email) throw new Error('La sesión venció.');
-  await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, current));
-  if (auth.currentUser?.uid !== user.uid) throw new Error('La sesión cambió.');
-  await updatePassword(user, next);
+export async function activateAccess(dni, code, next) {
+  const email = await verifyPasswordResetCode(auth, code);
+  if (email.toLowerCase() !== workerEmail(dni)) return false;
+  await confirmPasswordReset(auth, code, next);
+  return true;
+}
+
+const resetRef = (uid) => doc(db, 'accessResets', uid);
+
+export async function requestAccessReset(uid, requestId, publicKey) {
+  const employerUid = auth.currentUser?.uid;
+  if (!employerUid) throw new Error('La sesión venció.');
+  return runTransaction(db, async (transaction) => {
+    const ref = resetRef(uid);
+    const existing = (await transaction.get(ref)).data();
+    if (existing?.status === 'processing' ||
+      (existing?.status === 'pending' && Date.now() - existing.requestedAt.toMillis() < 300000)) return false;
+    transaction.set(ref, { status: 'pending', employerUid, requestId, publicKey, requestedAt: serverTimestamp() });
+    return true;
+  });
+}
+
+export function watchAccessReset(uid, onUpdate, onError) {
+  return onSnapshot(resetRef(uid), { includeMetadataChanges: true }, (snapshot) => {
+    if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) onUpdate(snapshot.data());
+  }, onError);
 }
 
 export async function createWorker(draft) {
@@ -130,6 +157,7 @@ export function watchPortal(account, today, receive, onError) {
   watch(employer ? corrections : query(corrections, where('workerId', '==', uid)), 'corrections', entries);
   if (employer) {
     watch(collection(db, 'profiles'), 'staff', entries);
+    watch(collection(db, 'staffRecoveryContacts'), 'staffRecoveryContacts', entries);
     watch(collection(db, 'staffAbsences'), 'absences', entries);
     watch(collection(db, 'plantClosures'), 'calendar', entries);
     watch(collectionGroup(db, 'records'), 'attendance', (snapshot) => snapshot.docs
@@ -165,6 +193,13 @@ export function saveRecord(collectionName, id, value) {
   return runTransaction(db, async (transaction) => {
     if (value === null) transaction.delete(ref);
     else transaction.set(ref, value);
+  });
+}
+
+export function saveWorkerSettings(uid, profile, email) {
+  return runTransaction(db, async (transaction) => {
+    transaction.set(doc(db, 'staffSchedules', uid), profile);
+    transaction.set(doc(db, 'staffRecoveryContacts', uid), { email });
   });
 }
 

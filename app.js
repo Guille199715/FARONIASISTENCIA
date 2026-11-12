@@ -676,62 +676,165 @@ async function bootPortal() {
     setFormError('access-error', 'Abrí el portal publicado para iniciar sesión con Firebase.');
     return;
   }
+  const code = new URLSearchParams(location.hash.slice(1)).get('reactivar');
+  if (code) {
+    activationCode = code;
+    history.replaceState(null, '', location.pathname + location.search);
+    showAccessActivation(true);
+  }
   try {
-    cloud = await import('./portal-firebase.js');
+    cloud = await import('./portal-firebase.js?v=portal-2');
+    if (activationCode) {
+      get('activate-access-submit').disabled = false;
+      return;
+    }
     const match = await cloud.resume();
     if (match) enterPortal(match);
   } catch {
-    setFormError('access-error', 'No pudimos conectar con el portal. Recargá la página para reintentar.');
+    setFormError(activationCode ? 'activate-access-error' : 'access-error',
+      'No pudimos conectar con el portal. Volvé a abrir el enlace para reintentar.');
   } finally {
     button.disabled = !cloud;
   }
 }
 
-const passwordDialog = get('password-change-dialog');
-const passwordForm = get('password-change-form');
-const passwordButton = get('submit-password-change');
-const passwordCancel = get('cancel-password-change');
+let activationCode = '';
+const resetRequests = new Map();
 
-get('open-password-change').addEventListener('click', () => {
-  if (account?.role !== 'worker') return;
-  passwordForm.reset();
-  setFormError('password-change-error');
-  passwordDialog.showModal();
-  get('password-current').focus();
+function showAccessActivation(visible) {
+  get('sign-in-content').hidden = visible;
+  get('activate-access').hidden = !visible;
+  get('access').setAttribute('aria-labelledby', visible ? 'activate-access-title' : 'access-title');
+  get(visible ? 'activate-access-dni' : 'username').focus();
+}
+
+get('activate-access-cancel').addEventListener('click', () => {
+  activationCode = '';
+  get('activate-access-form').reset();
+  showAccessActivation(false);
 });
-passwordCancel.addEventListener('click', () => passwordDialog.close());
-passwordDialog.addEventListener('cancel', (event) => {
-  if (passwordButton.disabled) event.preventDefault();
-});
-passwordDialog.addEventListener('close', () => {
-  passwordForm.reset();
-  setFormError('password-change-error');
-});
-handleForm('password-change-form', 'password-change-error', async () => {
-  if (account?.role !== 'worker' || !passwordDialog.open) return;
-  const current = get('password-current').value;
-  const next = get('password-new').value;
-  if (Array.from(next).length < 8 || next.length > 128 || !/\p{L}/u.test(next) || !/\d/.test(next)) {
-    setFormError('password-change-error', 'Usá al menos 8 caracteres con letras y números.');
+
+handleForm('activate-access-form', 'activate-access-error', async () => {
+  if (!cloud || !activationCode) return;
+  const dni = get('activate-access-dni').value.trim().replaceAll('.', '');
+  const password = get('activate-access-password').value;
+  if (!/^[0-9]{7,8}$/.test(dni)) {
+    setFormError('activate-access-error', 'Ingresá un DNI de 7 u 8 dígitos.');
     return;
   }
-  if (next === current || next !== get('password-repeat').value) {
-    setFormError('password-change-error', next === current
-      ? 'Elegí una contraseña distinta de la actual.' : 'Las contraseñas nuevas no coinciden.');
+  if (Array.from(password).length < 8 || password.length > 128 || !/\p{L}/u.test(password) || !/\d/.test(password)) {
+    setFormError('activate-access-error', 'Usá al menos 8 caracteres con letras y números.');
     return;
   }
-  passwordCancel.disabled = true;
+  if (password !== get('activate-access-repeat').value) {
+    setFormError('activate-access-error', 'Las contraseñas nuevas no coinciden.');
+    return;
+  }
+  const cancel = get('activate-access-cancel');
+  cancel.disabled = true;
   try {
-    await cloud.changePassword(current, next);
-    passwordForm.reset();
-    passwordDialog.close();
-    showMessage('Contraseña actualizada.');
+    if (!await cloud.activateAccess(dni, activationCode, password)) {
+      setFormError('activate-access-error', 'El DNI no coincide con la cuenta del enlace.');
+      return;
+    }
+    activationCode = '';
+    get('activate-access-form').reset();
+    showAccessActivation(false);
+    get('username').value = dni;
+    get('password').focus();
+    showMessage('Acceso reactivado. Ingresá con tu nueva contraseña.');
   } catch (error) {
-    const invalid = ['auth/invalid-credential', 'auth/wrong-password', 'auth/invalid-login-credentials'];
-    setFormError('password-change-error', invalid.includes(error.code)
-      ? 'La contraseña actual no coincide.' : 'No pudimos cambiar la contraseña. Volvé a intentar.');
+    const invalid = ['auth/expired-action-code', 'auth/invalid-action-code', 'auth/user-not-found'];
+    setFormError('activate-access-error', invalid.includes(error.code)
+      ? 'El enlace venció o ya fue usado. Pedile uno nuevo a Administración.'
+      : 'No se pudo guardar la contraseña. Revisá la conexión y volvé a intentar.');
   } finally {
-    passwordCancel.disabled = false;
+    cancel.disabled = false;
+  }
+});
+
+function renderAccessReset(uid) {
+  const entry = resetRequests.get(uid);
+  const result = get('reset-worker-result');
+  const message = get('reset-worker-message');
+  get('reset-worker-access').disabled = Boolean(entry?.pending);
+  result.hidden = !entry?.link;
+  get('reset-worker-link').value = entry?.link ?? '';
+  message.textContent = entry?.message ?? '';
+  message.hidden = !entry?.message;
+}
+
+function updateAccessReset(uid, entry, message) {
+  if (resetRequests.get(uid) !== entry) return;
+  entry.message = message;
+  if (scheduleEditorWorker?.id === uid && get('schedule-dialog').open) renderAccessReset(uid);
+}
+
+get('reset-worker-access').addEventListener('click', async () => {
+  const uid = scheduleEditorWorker?.id;
+  if (!uid || account?.role !== 'employer' || !get('schedule-dialog').open || resetRequests.get(uid)?.pending) return;
+  const contact = (portalState.get('staffRecoveryContacts') ?? []).find((item) => item.id === uid)?.email ?? '';
+  if (get('profile-recovery-email').value.trim() !== contact) {
+    resetRequests.set(uid, { message: 'Guardá el correo de recuperación antes de reiniciar el acceso.' });
+    renderAccessReset(uid);
+    return;
+  }
+  if (!window.confirm('¿Reiniciar el acceso? La contraseña actual dejará de funcionar.')) return;
+  const entry = { pending: true, requestId: crypto.randomUUID() };
+  resetRequests.set(uid, entry);
+  updateAccessReset(uid, entry, 'Solicitando reinicio…');
+  try {
+    const keys = await crypto.subtle.generateKey({
+      name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256',
+    }, false, ['encrypt', 'decrypt']);
+    const publicKey = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey('spki', keys.publicKey))));
+    if (resetRequests.get(uid) !== entry) return;
+    if (!await cloud.requestAccessReset(uid, entry.requestId, publicKey)) {
+      entry.pending = false;
+      updateAccessReset(uid, entry, 'Ya hay un reinicio en curso para este empleado.');
+      return;
+    }
+    if (resetRequests.get(uid) !== entry) return;
+    updateAccessReset(uid, entry, 'Esperando que la PC de Administración procese el reinicio…');
+    entry.stop = cloud.watchAccessReset(uid, async (data) => {
+      if (resetRequests.get(uid) !== entry || data?.requestId !== entry.requestId || !entry.pending) return;
+      if (data.status === 'failed') {
+        entry.pending = false;
+        entry.stop?.();
+        updateAccessReset(uid, entry, 'No se pudo generar el enlace. Volvé a intentar.');
+      } else if (data.status === 'ready') {
+        entry.pending = false;
+        entry.stop?.();
+        try {
+          const bytes = Uint8Array.from(atob(data.sealed), (character) => character.charCodeAt(0));
+          const code = new TextDecoder().decode(await crypto.subtle.decrypt('RSA-OAEP', keys.privateKey, bytes));
+          const link = new URL('./', location.href);
+          link.hash = new URLSearchParams({ reactivar: code }).toString();
+          entry.link = link.href;
+          updateAccessReset(uid, entry, 'Copiá el enlace y compartilo en privado. Se puede usar una sola vez.');
+        } catch {
+          updateAccessReset(uid, entry, 'No pudimos abrir el enlace. Solicitá uno nuevo.');
+        }
+      }
+    }, () => {
+      entry.pending = false;
+      updateAccessReset(uid, entry, 'Se interrumpió la conexión mientras esperábamos el reinicio.');
+    });
+  } catch {
+    entry.pending = false;
+    updateAccessReset(uid, entry, 'No se pudo solicitar el reinicio. Revisá la conexión.');
+  }
+});
+
+get('copy-reset-worker-link').addEventListener('click', async () => {
+  const field = get('reset-worker-link');
+  if (!field.value) return;
+  try {
+    await navigator.clipboard.writeText(field.value);
+    showMessage('Enlace copiado.');
+  } catch {
+    field.focus();
+    field.select();
   }
 });
 
@@ -980,7 +1083,9 @@ get('sign-out').addEventListener('click', async () => {
   marks = [];
   pendingPunch = undefined;
   if (punchDialog.open) punchDialog.close();
-  if (passwordDialog.open) passwordDialog.close();
+  for (const reset of resetRequests.values()) reset.stop?.();
+  resetRequests.clear();
+  renderAccessReset();
   clearTimeout(toastTimer);
   get('toast').hidden = true;
   get('announcement').textContent = '';

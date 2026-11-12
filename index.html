@@ -7,9 +7,9 @@
   <title>Asistencia | Metalúrgica Tecnológica Faroni</title>
   <link rel="icon" href="assets/faroni.jpg">
   <link rel="stylesheet" href="styles.css">
-  <script src="app.js?v=portal-1" defer></script>
+  <script src="app.js?v=portal-2" defer></script>
   <script src="xlsx.js" defer></script>
-  <script src="reports.js?v=portal-1" defer></script>
+  <script src="reports.js?v=portal-2" defer></script>
   <script src="corrections.js?v=portal-1" defer></script>
 </head>
 <body>
@@ -48,6 +48,21 @@
         <button id="forgot-password" type="button" class="history-link">Olvidé mi contraseña</button>
         <a id="published-portal" href="https://guille199715.github.io/FARONIASISTENCIA/" class="history-link" hidden>Abrir el portal publicado</a>
       </div>
+    </div>
+    <div id="activate-access" class="access-content" hidden>
+      <h1 id="activate-access-title" tabindex="-1">Reactivar mi acceso</h1>
+      <form id="activate-access-form" class="entry-form">
+        <label for="activate-access-dni">DNI</label>
+        <input id="activate-access-dni" inputmode="numeric" autocomplete="username" required>
+        <label for="activate-access-password">Nueva contraseña</label>
+        <input id="activate-access-password" type="password" minlength="8" maxlength="128" autocomplete="new-password" aria-describedby="activate-access-hint" required>
+        <p id="activate-access-hint" class="field-hint">Usá al menos 8 caracteres con letras y números.</p>
+        <label for="activate-access-repeat">Repetí la contraseña nueva</label>
+        <input id="activate-access-repeat" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+        <p id="activate-access-error" class="form-error" role="alert" hidden></p>
+        <button id="activate-access-submit" class="punch" type="submit" disabled>Guardar contraseña</button>
+        <button id="activate-access-cancel" class="history-link" type="button">Volver al ingreso</button>
+      </form>
     </div>
   </main>
 
@@ -126,7 +141,7 @@
           <h2 id="employee-profile-name"></h2>
           <p id="employee-profile-detail" class="field-hint"></p>
           <p id="employee-profile-schedule" class="field-hint"></p>
-          <div class="section-links"><button id="open-password-change" type="button" class="history-link" aria-haspopup="dialog">Cambiar contraseña</button></div>
+          <p class="field-hint">Para cambiar o recuperar tu contraseña, pedile a Administración un enlace de reactivación.</p>
         </div>
         <details id="correction-details" class="card workers-card absence-layout">
           <summary>Solicitar corrección</summary>
@@ -310,24 +325,6 @@
 
   <p id="announcement" class="sr-only" role="status"></p>
   <div id="toast" class="toast" hidden></div>
-  <dialog id="password-change-dialog" class="punch-dialog" aria-labelledby="password-change-title">
-    <h2 id="password-change-title">Cambiar contraseña</h2>
-    <form id="password-change-form" class="entry-form">
-      <label for="password-current">Contraseña actual</label>
-      <input id="password-current" type="password" autocomplete="current-password" required>
-      <label for="password-new">Nueva contraseña</label>
-      <input id="password-new" type="password" minlength="8" maxlength="128" autocomplete="new-password" aria-describedby="password-change-hint" required>
-      <p id="password-change-hint" class="field-hint">Usá al menos 8 caracteres con letras y números.</p>
-      <label for="password-repeat">Repetí la contraseña nueva</label>
-      <input id="password-repeat" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
-      <p id="password-change-error" class="form-error" role="alert" hidden></p>
-      <div class="punch-dialog-actions">
-        <button id="cancel-password-change" class="report-button" type="button">Cancelar</button>
-        <button id="submit-password-change" class="punch" type="submit">Guardar contraseña</button>
-      </div>
-    </form>
-  </dialog>
-
   <dialog id="punch-dialog" class="punch-dialog" aria-labelledby="punch-dialog-title" aria-describedby="punch-dialog-message">
     <form id="punch-confirmation" method="dialog">
       <h2 id="punch-dialog-title"></h2>
@@ -370,8 +367,17 @@
         <legend class="sr-only">Datos del empleado</legend>
         <dl class="schedule-profile-info"><div><dt>Identificación</dt><dd id="schedule-profile-id"></dd></div><div><dt>Estado</dt><dd id="schedule-profile-status"></dd></div></dl>
         <label for="profile-position">Puesto (opcional)</label><input id="profile-position" maxlength="80" placeholder="Ej. Soldador">
+        <label for="profile-recovery-email">Correo de recuperación (opcional)</label>
+        <input id="profile-recovery-email" type="email" maxlength="254" autocomplete="off" placeholder="nombre@correo.com">
         <p id="profile-schedule-summary" class="field-hint"></p>
         <div class="section-links"><button id="assign-schedule" type="button" class="report-button"></button><button id="inherit-schedule" type="button" class="history-link" hidden>Usar horario general</button></div>
+        <div class="section-links"><button id="reset-worker-access" type="button" class="report-button">Reiniciar acceso</button></div>
+        <p id="reset-worker-message" class="field-hint" role="status" hidden></p>
+        <div id="reset-worker-result" hidden>
+          <label for="reset-worker-link">Enlace privado de reactivación</label>
+          <input id="reset-worker-link" type="text" readonly autocomplete="off">
+          <button id="copy-reset-worker-link" type="button" class="report-button">Copiar enlace</button>
+        </div>
       </fieldset>
       <fieldset id="schedule-hours" class="profile-fields" hidden disabled>
         <legend>Horarios por grupo de días</legend>
