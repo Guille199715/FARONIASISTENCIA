@@ -7,10 +7,15 @@ const weekdaysInOrder = [1, 2, 3, 4, 5, 6, 0];
 const closureTypes = { holiday: 'Feriado', vacation: 'Vacaciones de fábrica', shutdown: 'Cierre de fábrica' };
 const reportIndicators = {
   normal: 'Horario normal', late: 'Tardanza', absent: 'Falta', review: 'Revisar fichadas',
-  pending: 'Pendiente', closure: 'Feriado o cierre', extra: 'Fuera de jornada',
+  pending: 'Pendiente', closure: 'Feriado o cierre', extra: 'Fuera de jornada', novelty: 'Novedad registrada',
 };
 const dateForReport = new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
 let displayedReport;
+let reportPrintState;
+let reportPage = 0;
+let reportSelection = '';
+const reportPageSize = 25;
+const primaryIndicators = ['normal', 'late', 'absent', 'review'];
 let editingClosure;
 let scheduleEditorWorker;
 let personalScheduleDraft;
@@ -159,6 +164,8 @@ function openScheduleEditor(worker = null, status = '') {
     get('schedule-dialog-title').textContent = worker.name;
     get('schedule-profile-id').textContent = worker.label;
     get('schedule-profile-status').textContent = status;
+    get('toggle-worker-access').textContent = worker.disabled ? 'Reactivar acceso' : 'Desactivar acceso';
+    get('reset-worker-access').hidden = worker.disabled;
     get('profile-position').value = profile?.position ?? '';
     get('profile-recovery-email').value = (portalState.get('staffRecoveryContacts') ?? [])
       .find((contact) => contact.id === worker.id)?.email ?? '';
@@ -171,6 +178,7 @@ function openScheduleEditor(worker = null, status = '') {
     setScheduleHours(readReportSetting(reportSettingsKey, defaultSchedule));
   }
   renderAccessReset(worker?.id);
+  setFormError('archive-worker-error');
   get('schedule-dialog').showModal();
 }
 
@@ -208,6 +216,7 @@ function attendanceDay({ day, worker, marksForDay, absence, closure, scheduled, 
   let status;
   if (absence) {
     notes.push(`Aviso: ${absenceReasons.get(absence.reason)}${absence.certificate ? ' · Certificado presentado' : ''}`);
+    if (absence.fromTime) notes.push(`Permiso de ${absence.fromTime} a ${absence.toTime}`);
     if (absence.note) notes.push(absence.note);
   }
   if (closure) {
@@ -215,6 +224,8 @@ function attendanceDay({ day, worker, marksForDay, absence, closure, scheduled, 
     notes.push(closureTypes[closure.type]);
     if (closure.note) notes.push(closure.note);
     if (marksForDay.length) notes.push('Hay fichadas durante el cierre');
+  } else if (!marksForDay.length && ['vacation', 'leave', 'permission'].includes(absence?.reason) && !absence.fromTime) {
+    status = 'novelty';
   } else if (!scheduled) {
     status = 'extra';
   } else if (!marksForDay.length) {
@@ -225,6 +236,9 @@ function attendanceDay({ day, worker, marksForDay, absence, closure, scheduled, 
     const complete = marksForDay.every(({ type }, index) => type === (index % 2 === 0 ? 'in' : 'out')) && marksForDay.length % 2 === 0;
     const early = complete && markTime(exit) < schedule.end;
     const inProgress = day === today && nowTime < schedule.end && marksForDay.at(-1).type === 'in';
+    if (marksForDay.length > 2) {
+      notes.push(marksForDay.map((mark) => `${mark.type === 'in' ? 'Entrada' : 'Salida'} ${markTime(mark)}`).join(', '));
+    }
     if (!complete) notes.push(inProgress ? 'Jornada en curso' : 'Fichadas incompletas');
     if (early) notes.push('Salida antes del horario previsto');
     if (late) status = 'late';
@@ -264,7 +278,8 @@ function buildAttendanceReport(days, workerId, now = new Date()) {
       const absence = absences.get(`${worker.id}/${day}`);
       const closure = closures.find((item) => item.from <= day && item.to >= day);
       const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
-      const scheduled = schedule.days.includes(weekday) && ((worker.active && day >= coverage) || Boolean(absence));
+      const employedOnDay = day >= coverage && (worker.active || day < worker.archivedOn);
+      const scheduled = schedule.days.includes(weekday) && (employedOnDay || Boolean(absence));
       const marksForDay = worker.entry && closure ? (marksByDate.get(day) || []).filter((mark) => mark.correctionId) : marksByDate.get(day) || [];
       if (!scheduled && !marksForDay.length && !absence) continue;
       const sorted = marksForDay.slice().sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
@@ -285,9 +300,11 @@ function reportScheduleLine(report) {
 }
 
 function renderAttendanceReport() {
-  if (account?.role !== 'employer' || get('reports').hidden) return;
+  if (account?.role !== 'employer' || get('reports').hidden || reportPrintState) return;
   if (!attendanceReady || !['staff', 'absences', 'calendar', 'schedule', 'staffSchedules', 'corrections'].every((key) => portalState.has(key))) {
     displayedReport = undefined;
+    get('report-results').hidden = true;
+    get('attendance-period').textContent = '';
     setFormError('report-error', 'Cargando los datos de asistencia…');
     get('export-attendance-xlsx').disabled = true;
     get('export-attendance-pdf').disabled = true;
@@ -295,6 +312,9 @@ function renderAttendanceReport() {
   }
   const days = reportDates(...selectedAttendanceRange());
   if (!days.length || days.length > 366) {
+    displayedReport = undefined;
+    get('report-results').hidden = true;
+    get('attendance-period').textContent = '';
     setFormError('report-error', 'Elegí un período válido de hasta 366 días, con la fecha final igual o posterior a la inicial.');
     get('export-attendance-xlsx').disabled = true;
     get('export-attendance-pdf').disabled = true;
@@ -303,23 +323,56 @@ function renderAttendanceReport() {
   setFormError('report-error');
   displayedReport = buildAttendanceReport(days, get('report-worker').value);
   const { from, to, scope, totals, rows, closures } = displayedReport;
+  const selection = JSON.stringify([from, to, displayedReport.workerId]);
+  if (selection !== reportSelection) {
+    reportPage = 0;
+    get('report-status').value = '';
+    reportSelection = selection;
+  }
+  get('report-results').hidden = false;
   get('attendance-period').textContent = `${reportDate(from)} al ${reportDate(to)} · ${scope}`;
   get('attendance-schedule').textContent = reportScheduleLine(displayedReport);
-  get('attendance-notice').textContent = 'Cada indicador cuenta un día por empleado. Las faltas se computan al terminar el horario previsto.';
-  get('attendance-empty').hidden = rows.length > 0;
+  get('report-row-count').textContent = rows.length;
+  get('report-closures-count').textContent = closures.length;
+  get('report-closures-panel').hidden = !closures.length;
   get('export-attendance-xlsx').disabled = false;
   get('export-attendance-pdf').disabled = false;
-  get('attendance-totals').replaceChildren(...Object.entries(reportIndicators).map(([status, label]) => {
+  function indicatorCard(status) {
     const card = document.createElement('div');
     card.className = 'attendance-stat';
     card.dataset.indicator = status;
     card.innerHTML = '<dt></dt><dd></dd>';
-    card.querySelector('dt').textContent = label;
+    card.querySelector('dt').textContent = reportIndicators[status];
     card.querySelector('dd').textContent = totals[status];
     return card;
-  }));
+  }
+  get('attendance-totals').replaceChildren(...primaryIndicators.map(indicatorCard));
+  get('attendance-more-totals').replaceChildren(...Object.keys(reportIndicators)
+    .filter((status) => !primaryIndicators.includes(status)).map(indicatorCard));
+  get('report-closures').replaceChildren(...closures.map((closure) => closureRow(closure, false)));
+  renderAttendanceDetail();
+}
+
+function renderAttendanceDetail(printing = false) {
+  if (!displayedReport) return;
+  const status = get('report-status').value;
+  const rows = displayedReport.rows;
+  const filtered = printing || !status ? rows : rows.filter((row) => row.status === status);
+  const total = filtered.length;
+  const pages = Math.ceil(total / reportPageSize);
+  if (!printing) reportPage = Math.min(reportPage, Math.max(0, pages - 1));
+  const start = reportPage * reportPageSize;
+  const end = Math.min(start + reportPageSize, total);
+  get('attendance-empty').hidden = total > 0;
+  get('attendance-table-region').hidden = !total;
+  get('attendance-pagination').hidden = printing || pages <= 1;
+  get('attendance-prev').disabled = reportPage === 0;
+  get('attendance-next').disabled = reportPage + 1 >= pages;
+  get('attendance-page').textContent = total ? `${start + 1}–${end} de ${total}` : '';
+  if (!printing && !get('report-detail').open) return;
+
   const detail = document.createDocumentFragment();
-  for (const row of rows) {
+  for (const row of (printing ? rows : filtered.slice(start, end))) {
     const tr = document.createElement('tr');
     tr.insertCell().textContent = reportDate(row.day);
     const workerCell = tr.insertCell();
@@ -340,8 +393,6 @@ function renderAttendanceReport() {
     detail.append(tr);
   }
   get('attendance-rows').replaceChildren(detail);
-  get('report-closures-empty').hidden = closures.length > 0;
-  get('report-closures').replaceChildren(...closures.map((closure) => closureRow(closure, false)));
 }
 
 function updatePeriodFields() {
@@ -449,6 +500,22 @@ get('report-filters').addEventListener('submit', (event) => {
 });
 get('report-period').addEventListener('change', updatePeriodFields);
 get('report-filters').addEventListener('change', renderAttendanceReport);
+get('report-status').append(...Object.entries(reportIndicators).map(([value, label]) => new Option(label, value)));
+get('report-status').addEventListener('change', () => {
+  reportPage = 0;
+  renderAttendanceDetail();
+});
+get('report-detail').addEventListener('toggle', () => {
+  if (!document.body.classList.contains('printing-attendance')) renderAttendanceDetail();
+});
+get('attendance-prev').addEventListener('click', () => {
+  reportPage = Math.max(0, reportPage - 1);
+  renderAttendanceDetail();
+});
+get('attendance-next').addEventListener('click', () => {
+  reportPage++;
+  renderAttendanceDetail();
+});
 get('closure-cancel').addEventListener('click', () => setClosureForm());
 get('closure-from').addEventListener('change', () => {
   if (get('closure-to').value < get('closure-from').value) get('closure-to').value = get('closure-from').value;
@@ -532,6 +599,8 @@ handleForm('closure-form', 'closure-error', async () => {
 
 get('sign-out').addEventListener('click', () => {
   displayedReport = undefined;
+  reportSelection = '';
+  for (const id of ['report-more', 'report-detail', 'report-closures-panel']) get(id).open = false;
   setClosureForm();
   get('report-filters').reset();
   get('schedule-dialog').close();
@@ -574,7 +643,26 @@ get('export-attendance-xlsx').addEventListener('click', () => {
 
 get('export-attendance-pdf').addEventListener('click', () => {
   if (!displayedReport || account?.role !== 'employer') return;
+  if (reportPrintState) return;
+  const panels = ['report-more', 'report-detail', 'report-closures-panel'].map(get);
+  reportPrintState = panels.map((panel) => [panel, panel.open]);
   document.body.classList.add('printing-attendance');
-  window.print();
+  for (const panel of panels) panel.open = true;
+  renderAttendanceDetail(true);
+  try { window.print(); }
+  catch (error) {
+    restoreReportAfterPrint();
+    throw error;
+  }
 });
-window.addEventListener('afterprint', () => document.body.classList.remove('printing-attendance'));
+
+function restoreReportAfterPrint() {
+  if (!reportPrintState) return;
+  for (const [panel, open] of reportPrintState) panel.open = open;
+  reportPrintState = undefined;
+  document.body.classList.remove('printing-attendance');
+  get('attendance-rows').replaceChildren();
+  renderAttendanceDetail();
+}
+
+window.addEventListener('afterprint', restoreReportAfterPrint);

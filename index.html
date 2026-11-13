@@ -6,11 +6,11 @@
   <meta name="theme-color" content="#16191e">
   <title>Asistencia | Metalúrgica Tecnológica Faroni</title>
   <link rel="icon" href="assets/faroni.jpg">
-  <link rel="stylesheet" href="styles.css">
-  <script src="app.js?v=portal-2" defer></script>
+  <link rel="stylesheet" href="styles.css?v=informes-1">
+  <script src="app.js?v=portal-7" defer></script>
   <script src="xlsx.js" defer></script>
-  <script src="reports.js?v=portal-2" defer></script>
-  <script src="corrections.js?v=portal-1" defer></script>
+  <script src="reports.js?v=informes-1" defer></script>
+  <script src="corrections.js?v=portal-7" defer></script>
 </head>
 <body>
   <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -56,7 +56,7 @@
         <input id="activate-access-dni" inputmode="numeric" autocomplete="username" required>
         <label for="activate-access-password">Nueva contraseña</label>
         <input id="activate-access-password" type="password" minlength="8" maxlength="128" autocomplete="new-password" aria-describedby="activate-access-hint" required>
-        <p id="activate-access-hint" class="field-hint">Usá al menos 8 caracteres con letras y números.</p>
+        <p id="activate-access-hint" class="field-hint">Usá al menos 8 caracteres, con letras, números y una mayúscula.</p>
         <label for="activate-access-repeat">Repetí la contraseña nueva</label>
         <input id="activate-access-repeat" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
         <p id="activate-access-error" class="form-error" role="alert" hidden></p>
@@ -83,7 +83,7 @@
     <header class="topbar">
       <div class="mobile-brand brand"><img src="assets/faroni.jpg" alt="" width="40" height="40"><div><strong>Faroni</strong><span>Metalúrgica Tecnológica</span></div></div>
       <p id="portal-label" class="portal-label">Portal del personal</p>
-      <div class="topbar-end"><div class="identity"><span id="identity-avatar" class="avatar" aria-hidden="true"></span><div><strong id="identity-name"></strong><small id="identity-detail"></small></div></div><button id="sign-out" type="button" class="sign-out" aria-label="Cerrar sesión"><svg class="icon" aria-hidden="true"><use href="#i-out"/></svg><span>Salir</span></button></div>
+      <div class="topbar-end"><div class="identity"><span id="identity-avatar" class="avatar" aria-hidden="true"></span><div><strong id="identity-name"></strong><small id="identity-detail"></small></div></div><button id="open-notifications" type="button" class="sign-out" aria-label="Notificaciones" aria-haspopup="dialog"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span id="notification-count" hidden></span></button><button id="sign-out" type="button" class="sign-out" aria-label="Cerrar sesión"><svg class="icon" aria-hidden="true"><use href="#i-out"/></svg><span>Salir</span></button></div>
     </header>
 
     <main>
@@ -94,9 +94,9 @@
           <button type="button" class="card menu-tile" data-view="team"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg></span><strong>Asistencia</strong><small>Consultá las fichadas del equipo.</small></button>
           <button type="button" class="card menu-tile" data-view="corrections"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></span><strong>Correcciones</strong><small>Revisá las solicitudes del personal.</small><span id="pending-corrections" class="pending-badge" hidden></span></button>
           <button type="button" class="card menu-tile" data-view="workers"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-people"/></svg></span><strong>Personal</strong><small>Altas, perfiles y contraseñas.</small></button>
-          <button type="button" class="card menu-tile" data-view="absences"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span><strong>Ausencias</strong><small>Registrá avisos y certificados.</small></button>
+          <button type="button" class="card menu-tile" data-view="absences"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span><strong>Novedades</strong><small>Ausencias, vacaciones, licencias y permisos.</small></button>
           <button type="button" class="card menu-tile" data-view="reports"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg></span><strong>Informes de asistencia</strong><small>Generá y exportá por período.</small></button>
-          <button type="button" class="card menu-tile" data-view="absence-summary"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg></span><strong>Resumen de ausencias</strong><small>Revisá los avisos del mes.</small></button>
+          <button type="button" class="card menu-tile" data-view="absence-summary"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg></span><strong>Resumen de novedades</strong><small>Revisá los avisos del mes.</small></button>
           <button type="button" class="card menu-tile" data-view="calendar"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg></span><strong>Calendario de fábrica</strong><small>Cargá feriados y cierres.</small></button>
           <button type="button" class="card menu-tile" data-view="factory-hours"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></span><strong>Horario general</strong><small>Definí los horarios de fábrica.</small></button>
           <button type="button" class="card menu-tile" data-view="home"><span class="menu-icon"><svg class="icon" aria-hidden="true"><use href="#i-wifi"/></svg></span><strong>Mi jornada</strong><small>Configurá la red de planta para fichar.</small></button>
@@ -127,9 +127,23 @@
                 <p id="plant-network-error" class="form-error" role="alert" hidden></p>
                 <div class="plant-network-actions"><button id="use-plant-ip" class="report-button" type="button">Usar IP actual</button><button class="punch" type="submit">Guardar IP</button></div>
               </form>
+              <div class="switch-row">
+                <div><strong>Ubicación de planta</strong><p id="plant-location-status" class="field-hint" role="status">Cargando configuración…</p></div>
+              </div>
+              <form id="plant-location-form" class="entry-form" hidden>
+                <label><input id="plant-location-enabled" type="checkbox"> Exigir ubicación de planta</label>
+                <label for="plant-latitude">Latitud</label>
+                <input id="plant-latitude" type="number" step="any" min="-90" max="90" inputmode="decimal">
+                <label for="plant-longitude">Longitud</label>
+                <input id="plant-longitude" type="number" step="any" min="-180" max="180" inputmode="decimal">
+                <label for="plant-radius">Radio permitido (metros)</label>
+                <input id="plant-radius" type="number" min="50" max="5000" step="1" inputmode="numeric" value="200" required>
+                <p id="plant-location-error" class="form-error" role="alert" hidden></p>
+                <div class="plant-network-actions"><button id="use-plant-location" class="report-button" type="button">Usar mi ubicación</button><button class="punch" type="submit">Guardar ubicación</button></div>
+              </form>
             </section>
 
-            <section id="worker-day-marks" class="card day-card" aria-labelledby="day-title"><h2 id="day-title">Fichadas de hoy</h2><div class="day-marks"><div><span><svg class="icon" aria-hidden="true"><use href="#i-in"/></svg> Entrada</span><strong id="today-in">—</strong></div><div><span><svg class="icon" aria-hidden="true"><use href="#i-out"/></svg> Salida</span><strong id="today-out">—</strong></div></div></section>
+            <section id="worker-day-marks" class="card day-card" aria-labelledby="day-title"><h2 id="day-title">Fichadas de hoy</h2><div class="day-marks"><div><span>Última entrada</span><strong id="today-in">—</strong></div><div><span>Última salida</span><strong id="today-out">—</strong></div></div><ul id="today-mark-list" class="record-list"></ul><button id="open-absence-notice" type="button" class="report-button" aria-haspopup="dialog">Avisar ausencia</button></section>
           </div>
         </div>
 
@@ -141,7 +155,8 @@
           <h2 id="employee-profile-name"></h2>
           <p id="employee-profile-detail" class="field-hint"></p>
           <p id="employee-profile-schedule" class="field-hint"></p>
-          <p class="field-hint">Para cambiar o recuperar tu contraseña, pedile a Administración un enlace de reactivación.</p>
+          <div class="section-links"><button id="open-password-change" type="button" class="report-button" aria-haspopup="dialog">Cambiar contraseña</button></div>
+          <p class="field-hint">Si olvidaste tu contraseña, pedile a Administración un enlace de reactivación.</p>
         </div>
         <details id="correction-details" class="card workers-card absence-layout">
           <summary>Solicitar corrección</summary>
@@ -176,9 +191,9 @@
         <div class="intro"><h1 id="team-title" tabindex="-1">Asistencia del equipo</h1></div>
         <div class="team-summary team-status-filters" role="group" aria-label="Filtrar asistencia por estado">
           <button type="button" class="card" data-team-status="open" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot summary-open"></span> En jornada</span><strong id="total-open">0</strong></button>
-          <button type="button" class="card" data-team-status="closed" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot summary-closed"></span> Jornada cerrada</span><strong id="total-closed">0</strong></button>
+          <button type="button" class="card" data-team-status="closed" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot summary-closed"></span> Registró salida</span><strong id="total-closed">0</strong></button>
           <button type="button" class="card" data-team-status="waiting" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot"></span> Sin fichar</span><strong id="total-waiting">0</strong></button>
-          <button type="button" class="card" data-team-status="absent" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot summary-absent"></span> Ausencia avisada</span><strong id="total-absent">0</strong></button>
+          <button type="button" class="card" data-team-status="absent" aria-pressed="false" aria-controls="team-list"><span class="team-filter-label"><span class="summary-dot summary-absent"></span> Novedad registrada</span><strong id="total-absent">0</strong></button>
         </div>
         <section class="card team-records" aria-labelledby="team-records-title">
           <div class="team-toolbar"><div><h2 id="team-records-title" tabindex="-1">Registros por empleado</h2><p id="team-count" role="status"></p><button type="button" id="clear-team-status" class="history-link" hidden>Quitar filtro de estado</button></div><div class="team-filters"><label>Fecha<input id="team-date" type="date" required></label><label>Buscar empleado<input id="team-search" type="search" placeholder="Nombre, DNI o legajo"></label></div></div>
@@ -209,33 +224,40 @@
       </section>
 
       <section id="absences" aria-labelledby="absences-title" hidden>
-        <div class="intro"><h1 id="absences-title" tabindex="-1">Ausencias</h1></div>
+        <div class="intro"><h1 id="absences-title" tabindex="-1">Novedades</h1></div>
+        <section class="card workers-card" aria-labelledby="notice-list-title"><h2 id="notice-list-title">Avisos del personal</h2><p id="absence-notices-empty" class="field-hint">No hay avisos pendientes.</p><ul id="absence-notices-list" class="record-list"></ul></section>
         <div class="workers-layout">
           <section class="card workers-card" aria-labelledby="absence-title">
-            <h2 id="absence-title">Registrar o editar un aviso</h2><p class="field-hint">Seleccioná un empleado y una fecha.</p>
+            <h2 id="absence-title">Registrar o editar una novedad</h2>
             <form id="absence-form" class="entry-form" autocomplete="off">
               <label for="absence-search">Buscar empleado</label><input id="absence-search" type="search" placeholder="Nombre, DNI o legajo">
               <label for="absence-worker">Empleado</label><select id="absence-worker" required></select>
-              <label for="absence-date">Fecha de la ausencia</label><input id="absence-date" type="date" required>
+              <label for="absence-date">Fecha de inicio</label><input id="absence-date" type="date" required>
+              <label for="absence-end">Fecha final (opcional)</label><input id="absence-end" type="date">
               <label for="absence-reason">Motivo</label><select id="absence-reason" required>
-                <option value="">Elegí un motivo</option><option value="personal">Motivo personal</option><option value="personal-errand">Trámite personal</option><option value="medical">Trámite médico</option><option value="other">Otro</option>
+                <option value="">Elegí un motivo</option><optgroup label="Ausencias"><option value="personal">Motivo personal</option><option value="personal-errand">Trámite personal</option><option value="medical">Trámite médico</option><option value="other">Otro</option></optgroup><optgroup label="Otras novedades"><option value="vacation">Vacaciones</option><option value="leave">Licencia</option><option value="permission">Permiso extraordinario</option></optgroup>
               </select>
+              <fieldset id="absence-permission-hours" class="profile-fields" hidden disabled>
+                <legend>Horario del permiso (opcional)</legend>
+                <label for="absence-from-time">Desde</label><input id="absence-from-time" type="time">
+                <label for="absence-to-time">Hasta</label><input id="absence-to-time" type="time">
+              </fieldset>
               <label for="absence-note">Anotación (opcional)</label><textarea id="absence-note" rows="3" maxlength="500" placeholder="Ej. Avisó antes de iniciar el turno"></textarea>
               <label class="certificate-option"><input id="absence-certificate" type="checkbox"> Presentó certificado</label>
               <p id="absence-error" class="form-error" role="alert" hidden></p>
-              <button id="absence-save" type="submit" class="punch">Guardar ausencia</button>
+              <button id="absence-save" type="submit" class="punch">Guardar novedad</button>
             </form>
           </section>
           <section class="card workers-card" aria-labelledby="absence-list-title">
-            <h2 id="absence-list-title" tabindex="-1">Ausencias registradas</h2>
-            <p id="absence-empty" class="field-hint">Seleccioná un empleado para consultar sus ausencias.</p>
+            <h2 id="absence-list-title" tabindex="-1">Novedades registradas</h2>
+            <p id="absence-empty" class="field-hint">Seleccioná un empleado para consultar sus novedades.</p>
             <ul id="absence-list" class="record-list"></ul>
           </section>
         </div>
       </section>
 
       <section id="absence-summary" aria-labelledby="absence-summary-title" hidden>
-        <div class="intro"><h1 id="absence-summary-title" tabindex="-1">Resumen de ausencias</h1></div>
+        <div class="intro"><h1 id="absence-summary-title" tabindex="-1">Resumen de novedades</h1></div>
         <div class="card workers-card">
           <div class="team-toolbar report-toolbar">
             <p>Cuenta un aviso por empleado y fecha.</p>
@@ -254,8 +276,11 @@
 
       <section id="reports" aria-labelledby="reports-title" hidden>
         <header class="report-banner">
-          <div><span class="eyebrow">METALÚRGICA TECNOLÓGICA FARONI</span><h1 id="reports-title" tabindex="-1">Informe de asistencia</h1><p id="attendance-period"></p><p id="attendance-schedule"></p></div>
-          <img src="assets/faroni.jpg" width="52" height="52" alt="">
+          <div><h1 id="reports-title" tabindex="-1">Informe de asistencia</h1><p id="attendance-period"></p></div>
+          <div class="report-actions" aria-label="Exportar informe">
+            <button id="export-attendance-xlsx" type="button" class="report-button" disabled>Exportar Excel</button>
+            <button id="export-attendance-pdf" type="button" class="report-button" disabled>Exportar PDF</button>
+          </div>
         </header>
         <form id="report-filters" class="card attendance-filters">
           <label>Período <select id="report-period"><option value="month">Mensual</option><option value="half">Quincenal</option><option value="custom">Fecha a fecha</option></select></label>
@@ -264,27 +289,36 @@
           <label id="report-from-label" hidden>Desde <input id="report-from" type="date" disabled required></label>
           <label id="report-to-label" hidden>Hasta <input id="report-to" type="date" disabled required></label>
           <label>Empleado <select id="report-worker"><option value="">Todo el personal</option></select></label>
-          <button class="punch" type="submit">Generar informe</button>
           <p id="report-error" class="form-error" role="alert" hidden></p>
         </form>
-        <div class="report-actions">
-          <button id="export-attendance-xlsx" type="button" class="report-button">Exportar Excel</button>
-          <button id="export-attendance-pdf" type="button" class="report-button">Exportar PDF</button>
+        <div id="report-results" hidden>
+          <dl id="attendance-totals" class="attendance-totals" aria-label="Indicadores principales del período"></dl>
+          <details id="report-more" class="card workers-card report-disclosure">
+            <summary>Más indicadores y horario</summary>
+            <dl id="attendance-more-totals" class="attendance-totals" aria-label="Otros indicadores del período"></dl>
+            <p id="attendance-schedule" class="field-hint"></p>
+            <p class="field-hint">Cada indicador cuenta un día por empleado. Las faltas se computan al terminar el horario previsto.</p>
+          </details>
+          <details id="report-detail" class="card workers-card report-disclosure">
+            <summary>Detalle por día <span id="report-row-count"></span></summary>
+            <div class="report-detail-controls">
+              <label for="report-status">Mostrar <select id="report-status"><option value="">Todos los estados</option></select></label>
+              <p id="attendance-page" class="field-hint" role="status"></p>
+            </div>
+            <p id="attendance-empty" class="field-hint" hidden>No hay registros para mostrar con esta selección.</p>
+            <div id="attendance-table-region" class="attendance-table-wrap" role="region" aria-label="Detalle de asistencia" tabindex="0">
+              <table class="team-table attendance-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Empleado</th><th scope="col">Entrada</th><th scope="col">Salida</th><th scope="col">Indicador</th><th scope="col">Observación</th></tr></thead><tbody id="attendance-rows"></tbody></table>
+            </div>
+            <div id="attendance-pagination" class="report-actions" aria-label="Páginas del detalle">
+              <button id="attendance-prev" type="button" class="report-button">Anterior</button>
+              <button id="attendance-next" type="button" class="report-button">Siguiente</button>
+            </div>
+          </details>
+          <details id="report-closures-panel" class="card workers-card report-disclosure" hidden>
+            <summary>Feriados y cierres <span id="report-closures-count"></span></summary>
+            <ul id="report-closures" class="record-list"></ul>
+          </details>
         </div>
-        <p id="attendance-notice" class="field-hint" role="status"></p>
-        <dl id="attendance-totals" class="attendance-totals" aria-label="Indicadores del período"></dl>
-        <section class="card workers-card" aria-labelledby="attendance-detail-title">
-          <h2 id="attendance-detail-title">Detalle por día</h2>
-          <p id="attendance-empty" class="field-hint" hidden>No hay registros para mostrar en este período.</p>
-          <div class="attendance-table-wrap" role="region" aria-label="Detalle de asistencia" tabindex="0">
-            <table class="team-table attendance-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Empleado</th><th scope="col">Entrada</th><th scope="col">Salida</th><th scope="col">Indicador</th><th scope="col">Observación</th></tr></thead><tbody id="attendance-rows"></tbody></table>
-          </div>
-        </section>
-        <section class="card workers-card absence-layout" aria-labelledby="report-closures-title">
-          <h2 id="report-closures-title">Feriados y cierres del período</h2>
-          <p id="report-closures-empty" class="field-hint" hidden>No hay feriados ni cierres cargados para este período.</p>
-          <ul id="report-closures" class="record-list"></ul>
-        </section>
       </section>
 
       <section id="factory-hours" aria-labelledby="factory-hours-title" hidden>
@@ -325,6 +359,44 @@
 
   <p id="announcement" class="sr-only" role="status"></p>
   <div id="toast" class="toast" hidden></div>
+  <dialog id="notifications-dialog" class="punch-dialog" aria-labelledby="notifications-title">
+    <h2 id="notifications-title">Notificaciones</h2>
+    <p id="notifications-empty">Todavía no hay notificaciones.</p>
+    <ul id="notifications-list" class="record-list"></ul>
+    <div class="punch-dialog-actions"><button id="close-notifications" type="button" class="report-button">Cerrar</button><button id="view-notice-inbox" type="button" class="report-button" hidden>Ir a Novedades</button></div>
+  </dialog>
+
+  <dialog id="absence-notice-dialog" class="punch-dialog" aria-labelledby="absence-notice-title">
+    <h2 id="absence-notice-title">Avisar ausencia</h2>
+    <form id="absence-notice-form" class="entry-form">
+      <label for="absence-notice-date">Fecha</label><input id="absence-notice-date" type="date" required>
+      <label for="absence-notice-reason">Motivo</label><select id="absence-notice-reason" required>
+        <option value="">Elegí un motivo</option><option value="personal">Motivo personal</option><option value="personal-errand">Trámite personal</option><option value="medical">Trámite médico</option><option value="other">Otro</option>
+      </select>
+      <label for="absence-notice-note">Comentario (opcional)</label><textarea id="absence-notice-note" maxlength="500" rows="3"></textarea>
+      <p id="absence-notice-error" class="form-error" role="alert" hidden></p>
+      <div class="punch-dialog-actions"><button id="cancel-absence-notice" type="button" class="report-button">Cancelar</button><button type="submit" class="punch">Enviar aviso</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="password-change-dialog" class="punch-dialog" aria-labelledby="password-change-title">
+    <h2 id="password-change-title">Cambiar contraseña</h2>
+    <form id="password-change-form" class="entry-form">
+      <label for="change-password-current">Contraseña actual</label>
+      <input id="change-password-current" type="password" autocomplete="current-password" required autofocus>
+      <label for="change-password-new">Nueva contraseña</label>
+      <input id="change-password-new" type="password" minlength="8" maxlength="128" autocomplete="new-password" aria-describedby="change-password-hint" required>
+      <p id="change-password-hint" class="field-hint">Usá al menos 8 caracteres, con letras, números y una mayúscula.</p>
+      <label for="change-password-repeat">Repetí la contraseña nueva</label>
+      <input id="change-password-repeat" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+      <p id="change-password-error" class="form-error" role="alert" hidden></p>
+      <div class="punch-dialog-actions">
+        <button id="cancel-password-change" class="report-button" type="button">Cancelar</button>
+        <button id="save-password-change" class="punch" type="submit">Guardar contraseña</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="punch-dialog" class="punch-dialog" aria-labelledby="punch-dialog-title" aria-describedby="punch-dialog-message">
     <form id="punch-confirmation" method="dialog">
       <h2 id="punch-dialog-title"></h2>
@@ -378,6 +450,11 @@
           <input id="reset-worker-link" type="text" readonly autocomplete="off">
           <button id="copy-reset-worker-link" type="button" class="report-button">Copiar enlace</button>
         </div>
+        <div class="section-links">
+          <button id="toggle-worker-access" type="button" class="report-button">Desactivar acceso</button>
+          <button id="archive-worker" type="button" class="report-button">Dar de baja</button>
+        </div>
+        <p id="archive-worker-error" class="form-error" role="alert" hidden></p>
       </fieldset>
       <fieldset id="schedule-hours" class="profile-fields" hidden disabled>
         <legend>Horarios por grupo de días</legend>

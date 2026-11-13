@@ -44,6 +44,8 @@ button:focus-visible { outline: 3px solid #477bea; outline-offset: 3px; }
 .mobile-brand { display: none; }
 .topbar-end, .identity { display: flex; align-items: center; }
 .topbar-end { gap: 19px; min-width: 0; }
+#open-notifications { position: relative; }
+#notification-count { position: absolute; top: -4px; right: -4px; padding: 2px 4px; border-radius: 10px; background: #a32e22; color: #fff; font-size: 10px; line-height: 1.1; }
 .identity { gap: 9px; min-width: 0; padding-left: 18px; border-left: 1px solid var(--line); }
 .identity > div { min-width: 0; }
 .identity strong, .identity small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -232,21 +234,19 @@ button:disabled { opacity: .65; cursor: wait; }
 .report-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; padding: 0; list-style: none; }
 .report-reasons li { padding: 5px 8px; border-radius: 8px; background: #eef0f3; color: #444d5b; font-size: 12px; }
 
-.report-banner { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; padding: clamp(18px, 4vw, 34px); border-radius: 17px; background: #202936; color: #fff; }
-.report-banner h1 { margin: 5px 0 9px; font-size: clamp(25px, 4vw, 39px); letter-spacing: -.035em; }
-.report-banner p { margin-top: 5px; color: #e1e8f0; font-size: 13px; }
-.report-banner .eyebrow { color: #f7ce74; }
-.report-banner img { flex: none; object-fit: contain; padding: 4px; border-radius: 10px; background: #fff; }
+.report-banner { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 18px; }
+.report-banner h1 { font-size: clamp(25px, 4vw, 36px); letter-spacing: -.035em; }
+.report-banner p { margin-top: 4px; color: var(--muted); font-size: 13px; }
+.report-banner .report-actions { margin: 0; }
 .attendance-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr)); gap: 12px; align-items: end; margin-top: 15px; padding: 15px; }
 .attendance-filters label { display: grid; gap: 5px; min-width: 0; font-size: 12px; font-weight: 700; }
 .attendance-filters :is(input, select) { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #c8cdd5; border-radius: 8px; background: #fff; color: inherit; font: inherit; font-size: 16px; }
-.attendance-filters .punch { min-height: 44px; justify-content: center; text-align: center; }
 .attendance-filters .form-error { grid-column: 1 / -1; }
 .report-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .report-button { min-height: 44px; padding: 8px 13px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; color: #233751; font-weight: 750; }
 .report-button:hover { background: #edf4fb; }
-.report-button:disabled { cursor: default; }
-.attendance-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 116px), 1fr)); gap: 9px; margin: 12px 0 16px; }
+.report-button:disabled { cursor: default; opacity: .55; }
+.attendance-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin: 12px 0; }
 .attendance-stat, .attendance-badge { color: var(--indicator-ink, #394656); background: var(--indicator-bg, #edf1f5); }
 .attendance-stat { display: flex; flex-direction: column; padding: 11px; border-radius: 12px; border: 1px solid currentColor; }
 .attendance-stat dt { font-size: 12px; font-weight: 700; }
@@ -258,6 +258,14 @@ button:disabled { opacity: .65; cursor: wait; }
 [data-indicator="closure"] { --indicator-ink: #554191; --indicator-bg: #f0eafb; }
 [data-indicator="extra"] { --indicator-ink: #245987; --indicator-bg: #e8f2fc; }
 .attendance-badge { display: inline-block; padding: 4px 7px; border-radius: 7px; font-size: 12px; font-weight: 700; }
+.report-disclosure { margin-top: 9px; }
+.report-disclosure summary { align-content: center; min-height: 44px; margin: -6px 0; font-weight: 700; cursor: pointer; }
+.report-disclosure[open] summary { margin-bottom: 8px; }
+.report-disclosure summary span { margin-inline-start: 5px; padding: 3px 8px; border-radius: 20px; background: #edf1f5; color: #394656; font-size: 12px; }
+.report-detail-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; }
+.report-detail-controls label { font-size: 13px; font-weight: 700; }
+.report-detail-controls select { min-height: 44px; margin-inline-start: 5px; padding: 6px; border: 1px solid #c8cdd5; border-radius: 8px; background: #fff; color: inherit; font: inherit; font-size: 16px; }
+#attendance-pagination { margin-bottom: 0; }
 .attendance-table-wrap { overflow-x: auto; margin-top: 11px; }
 .attendance-table { min-width: 650px; }
 .attendance-table td { vertical-align: top; overflow-wrap: anywhere; }
@@ -346,15 +354,18 @@ button:disabled { opacity: .65; cursor: wait; }
 @media print {
   @page { size: A4 landscape; margin: 12mm; }
   body.printing-attendance { background: #fff; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-  .printing-attendance :is(.rail, .topbar, .footer-note, .toast, .attendance-filters, .report-actions, .employer-back) { display: none !important; }
+  .printing-attendance :is(.rail, .topbar, .footer-note, .toast, .attendance-filters, .report-actions, .report-detail-controls, .employer-back) { display: none !important; }
   .printing-attendance .workspace { margin: 0; }
   .printing-attendance main { max-width: none; padding: 0; }
-  .printing-attendance .attendance-totals { grid-template-columns: repeat(7, minmax(0, 1fr)); }
   .printing-attendance .attendance-table-wrap { overflow: visible; }
   .printing-attendance .attendance-table { min-width: 0; table-layout: auto; font-size: 10px; }
   .printing-attendance .attendance-table :is(th, td) { padding: 5px; }
   .printing-attendance .attendance-table thead { display: table-header-group; }
   .printing-attendance :is(.attendance-table tr, .attendance-stat, .report-banner, .worker-row) { break-inside: avoid; }
+}
+
+@media screen and (max-width: 600px) {
+  .attendance-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 390px) {

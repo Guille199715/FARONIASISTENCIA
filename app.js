@@ -19,7 +19,7 @@ const viewButtons = document.querySelectorAll('[data-view]');
 const teamStatusButtons = document.querySelectorAll('[data-team-status]');
 const workerViews = ['home', 'profile'];
 const employerViews = ['menu', 'home', 'team', 'workers', 'worker-add', 'absences', 'absence-summary', 'reports', 'factory-hours', 'calendar', 'corrections'];
-const shiftLabels = { open: 'En jornada', closed: 'Jornada cerrada', waiting: 'Sin fichar', absent: 'Ausencia avisada' };
+const shiftLabels = { open: 'En jornada', closed: 'Registró salida', waiting: 'Sin fichar', absent: 'Novedad registrada' };
 const absenceReasons = new Map(Array.from(get('absence-reason').options, ({ value, text }) => [value, text]));
 absenceReasons.delete('');
 let account = null;
@@ -33,6 +33,7 @@ let attendanceReady = false;
 let loadedToday;
 const portalState = new Map();
 const portalMarks = new Map();
+const seenNotifications = new Set();
 let sessionVersion = 0;
 let connectionCheck = 0;
 let displayedDay;
@@ -59,7 +60,11 @@ function readAbsences() {
 
 function staffDirectory() {
   return (portalState.get('staff') ?? []).filter((item) => item.role === 'worker' && typeof item.name === 'string')
-    .map((item) => ({ id: item.id, name: item.name, label: item.dni ? 'DNI ' + item.dni : 'Personal', active: true, createdOn: item.createdOn }))
+    .map((item) => ({
+      id: item.id, name: item.name, label: item.dni ? 'DNI ' + item.dni : 'Personal',
+      active: !item.archivedAt, disabled: item.disabled === true, createdOn: item.createdOn,
+      archivedOn: item.archivedAt ? plantDay(item.archivedAt.toDate()) : undefined,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name, 'es-AR'));
 }
 
@@ -122,7 +127,7 @@ function recordList(list, entries) {
   list.replaceChildren(...rows);
 }
 
-function shiftSummary(records, day, today) {
+function shiftSummary(records, day) {
   const daily = records.filter(({ at }) => plantDay(new Date(at)) === day);
   const latest = daily[0];
   const state = latest?.type === 'in' ? 'open' : daily.length ? 'closed' : 'waiting';
@@ -130,6 +135,7 @@ function shiftSummary(records, day, today) {
     state,
     entry: daily.find(({ type }) => type === 'in'),
     exit: daily.find(({ type }) => type === 'out'),
+    daily,
   };
 }
 
@@ -139,15 +145,17 @@ function markTime(mark) {
 
 function renderShift(day) {
   const badge = get('shift-status');
-  const { state, entry, exit } = shiftSummary(marks, day, day);
+  const { state, entry, exit, daily } = shiftSummary(marks, day);
   const open = state === 'open';
   badge.dataset.state = state;
   badge.querySelector('span').textContent = shiftLabels[state];
-  punch.disabled = !attendanceReady || !portalState.has('network') || savingPunch || Boolean(exit);
-  punch.querySelector('span').textContent = exit ? 'Jornada registrada' : open ? 'Marcar salida' : 'Marcar entrada';
+  punch.disabled = !attendanceReady || !portalState.has('network') || !portalState.has('location') ||
+    checkingPunchLocation || savingPunch;
+  punch.querySelector('span').textContent = open ? 'Marcar salida' : exit ? 'Marcar regreso' : 'Marcar entrada';
   punch.querySelector('use').setAttribute('href', open ? '#i-out' : '#i-in');
   get('today-in').textContent = markTime(entry);
   get('today-out').textContent = markTime(exit);
+  recordList(get('today-mark-list'), daily);
 }
 
 function renderTeam(now = new Date()) {
@@ -155,13 +163,14 @@ function renderTeam(now = new Date()) {
   const day = get('team-date').value || today;
   const query = get('team-search').value.trim();
   const absences = new Map(readAbsences().filter((absence) => absence.date === day).map((absence) => [absence.workerId, absence]));
-  const staff = staffDirectory().filter((worker) => worker.active || absences.has(worker.id));
+  const staff = staffDirectory().filter((worker) => worker.active || day < worker.archivedOn ||
+    absences.has(worker.id) || loadOriginalMarks(worker.id).some(({ at }) => plantDay(new Date(at)) === day));
   const totals = { open: 0, closed: 0, waiting: 0, absent: 0 };
   const rows = [];
   for (const worker of staff) {
     const absence = absences.get(worker.id);
     const records = loadMarks(worker.id, now);
-    const summary = shiftSummary(records, day, today);
+    const summary = shiftSummary(records, day);
     const state = absence && summary.state === 'waiting' ? 'absent' : summary.state;
     totals[state] += 1;
     if ((teamStatus && state !== teamStatus) || !matchesWorker(worker, query)) continue;
@@ -183,9 +192,19 @@ function renderTeam(now = new Date()) {
     const badge = row.querySelector('.team-status');
     badge.dataset.state = state;
     badge.textContent = shiftLabels[state];
+    if (summary.daily.length > 2) {
+      const details = document.createElement('details');
+      const title = document.createElement('summary');
+      title.textContent = `Ver ${summary.daily.length} fichadas`;
+      const list = document.createElement('ul');
+      list.className = 'record-list';
+      recordList(list, summary.daily);
+      details.append(title, list);
+      row.querySelector('th').append(details);
+    }
     if (absence) {
       const note = row.querySelector('.attendance-note');
-      note.textContent = state === 'absent' ? absenceReasons.get(absence.reason) : 'También tiene una ausencia avisada';
+      note.textContent = absenceReasons.get(absence.reason);
       note.hidden = false;
     }
     rows.push(row);
@@ -252,8 +271,53 @@ function renderPlantNetwork() {
   const { enabled } = readPlantNetwork();
   wifiToggle.setAttribute('aria-checked', String(enabled === true));
   get('wifi-status').textContent = enabled ? 'Red de planta obligatoria' : 'Fichaje sin restricción de red';
-  get('punch-note').textContent = enabled ? 'Conectate a la red de planta para fichar.' : 'Podés fichar desde cualquier conexión.';
+  renderPlantLocation();
   refreshPlantConnection();
+}
+
+function readPlantLocation() {
+  return readReportSetting('location', { enabled: false, latitude: null, longitude: null, radius: 200 });
+}
+
+function renderPlantLocation() {
+  const geo = readPlantLocation().enabled;
+  const network = readPlantNetwork().enabled;
+  get('plant-location-status').textContent = !portalState.has('location') ? 'Cargando configuración…'
+    : geo ? 'Ubicación obligatoria al fichar' : 'Ubicación opcional desactivada';
+  get('punch-note').textContent = geo && network ? 'Para fichar, conectate a la red de planta y permití usar tu ubicación.'
+    : geo ? 'Para fichar, permití usar tu ubicación.'
+    : network ? 'Conectate a la red de planta para fichar.' : 'Podés fichar desde cualquier conexión.';
+}
+
+function fillPlantLocation() {
+  const { enabled, latitude, longitude, radius } = readPlantLocation();
+  get('plant-location-enabled').checked = enabled;
+  get('plant-latitude').value = latitude ?? '';
+  get('plant-longitude').value = longitude ?? '';
+  get('plant-radius').value = radius;
+  setFormError('plant-location-error');
+}
+
+function currentPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Este navegador no ofrece acceso a la ubicación.'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(({ coords }) => resolve(coords), (error) => {
+      reject(new Error(error.code === 1 ? 'Permití el acceso a tu ubicación en el navegador.'
+        : 'No pudimos obtener tu ubicación. Activá la ubicación del dispositivo y volvé a intentar.'));
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  });
+}
+
+function distanceToPlant(position, plant) {
+  const radians = (degrees) => degrees * Math.PI / 180;
+  const deltaLat = radians(position.latitude - plant.latitude);
+  const deltaLon = radians(position.longitude - plant.longitude);
+  const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(radians(plant.latitude)) *
+    Math.cos(radians(position.latitude)) * Math.sin(deltaLon / 2) ** 2;
+  return 12742000 * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
 async function lookupPublicIPv4() {
@@ -359,7 +423,7 @@ wifiToggle.addEventListener('click', async () => {
   const saved = await savePlantNetwork(enabled, ip);
   wifiToggle.disabled = false;
   if (saved) {
-    showMessage(enabled ? 'Control de red activado.' : 'Control de red desactivado. Ya se puede fichar desde cualquier conexión.');
+    showMessage(enabled ? 'Control de red activado.' : 'Control de red desactivado.');
   }
 });
 
@@ -396,6 +460,76 @@ get('use-plant-ip').addEventListener('click', async (event) => {
 const punchDialog = get('punch-dialog');
 let pendingPunch;
 let savingPunch = false;
+let checkingPunchLocation = false;
+
+get('use-plant-location').addEventListener('click', async (event) => {
+  if (!onPlantSettings()) return;
+  const button = event.currentTarget;
+  const session = sessionVersion;
+  button.disabled = true;
+  setFormError('plant-location-error');
+  try {
+    const { latitude, longitude, accuracy } = await currentPosition();
+    if (session !== sessionVersion || !onPlantSettings()) return;
+    if (!Number.isFinite(accuracy) || accuracy > 50) {
+      setFormError('plant-location-error', 'La ubicación del dispositivo es imprecisa. Probá al aire libre o ingresá las coordenadas.');
+      return;
+    }
+    get('plant-latitude').value = latitude.toFixed(6);
+    get('plant-longitude').value = longitude.toFixed(6);
+  } catch (error) {
+    if (session === sessionVersion) setFormError('plant-location-error', error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+handleForm('plant-location-form', 'plant-location-error', async () => {
+  if (!onPlantSettings() || !portalState.has('location')) return;
+  const enabled = get('plant-location-enabled').checked;
+  const latitude = get('plant-latitude').value === '' ? null : get('plant-latitude').valueAsNumber;
+  const longitude = get('plant-longitude').value === '' ? null : get('plant-longitude').valueAsNumber;
+  const radius = get('plant-radius').valueAsNumber;
+  const validCenter = Number.isFinite(latitude) && Math.abs(latitude) <= 90 &&
+    Number.isFinite(longitude) && Math.abs(longitude) <= 180;
+  if ((!validCenter && (enabled || latitude !== null || longitude !== null)) ||
+    !Number.isInteger(radius) || radius < 50 || radius > 5000) {
+    setFormError('plant-location-error', 'Ingresá coordenadas válidas y un radio de 50 a 5000 metros.');
+    return;
+  }
+  const session = sessionVersion;
+  await cloud.saveSetting('location', { enabled, latitude, longitude, radius });
+  if (session === sessionVersion && onPlantSettings()) showMessage('Configuración de ubicación guardada.');
+});
+
+async function verifyPunchLocation() {
+  if (!readPlantLocation().enabled) return true;
+  const session = sessionVersion;
+  checkingPunchLocation = true;
+  punch.disabled = true;
+  try {
+    const position = await currentPosition();
+    if (session !== sessionVersion || get('home').hidden) return false;
+    const plant = readPlantLocation();
+    if (!plant.enabled) return true;
+    const distance = distanceToPlant(position, plant);
+    if (Number.isFinite(distance) && distance > plant.radius) {
+      showMessage('Estás fuera de la zona permitida para fichar.', true);
+      return false;
+    }
+    if (!Number.isFinite(distance) || !Number.isFinite(position.accuracy) || distance + position.accuracy > plant.radius) {
+      showMessage('No pudimos confirmar que estés dentro de la zona. Acercate al centro de planta y volvé a intentar.', true);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    if (session === sessionVersion && !get('home').hidden) showMessage(error.message, true);
+    return false;
+  } finally {
+    checkingPunchLocation = false;
+    refreshAttendanceView();
+  }
+}
 
 async function canPunch() {
   if (account?.role !== 'worker' || get('home').hidden || punch.disabled || savingPunch) return false;
@@ -429,9 +563,8 @@ async function canPunch() {
 punch.addEventListener('click', async () => {
   if (punchDialog.open || !(await canPunch()) || punchDialog.open) return;
   const date = plantDay(new Date());
-  const current = shiftSummary(loadMarks(account.username), date, date);
-  if (current.exit) return;
-  const type = current.entry ? 'out' : 'in';
+  const current = shiftSummary(loadMarks(account.username), date);
+  const type = current.state === 'open' ? 'out' : 'in';
   pendingPunch = { username: account.username, type, date };
   const action = type === 'in' ? 'entrada' : 'salida';
   get('punch-dialog-title').textContent = `¿Confirmás tu ${action}?`;
@@ -447,8 +580,15 @@ get('punch-confirmation').addEventListener('submit', async (event) => {
   if (!punchDialog.open) return;
   punchDialog.close();
   const request = pendingPunch;
-  if (!request || !(await canPunch()) || request !== pendingPunch || request.username !== account?.username) return;
+  const networkBefore = readPlantNetwork();
+  if (!request || !(await canPunch()) || !(await verifyPunchLocation()) ||
+    request !== pendingPunch || request.username !== account?.username || get('home').hidden) return;
   pendingPunch = undefined;
+  const networkNow = readPlantNetwork();
+  if (networkNow.enabled && (!networkBefore.enabled || networkNow.ip !== networkBefore.ip)) {
+    showMessage('Cambió el control de red. Volvé a intentar la fichada.', true);
+    return;
+  }
 
   if (request.date !== plantDay(new Date())) {
     showMessage('Cambió la fecha. Volvé a abrir tu jornada.', true);
@@ -492,6 +632,8 @@ function showView(view) {
     for (const id of ['worker-day-intro', 'worker-clock', 'worker-day-marks']) get(id).hidden = employer;
     get('home-dashboard').classList.toggle('network-settings', employer);
     wifiToggle.hidden = get('plant-network-form').hidden = !employer;
+    get('plant-location-form').hidden = !employer || !portalState.has('location');
+    if (employer) fillPlantLocation();
     get('plant-ip').value = employer ? readPlantNetwork().ip ?? '' : '';
     setFormError('plant-network-error');
     renderPlantNetwork();
@@ -509,7 +651,10 @@ function showView(view) {
   if (view === 'corrections') renderEmployerCorrections();
   if (view === 'reports') openAttendanceReport();
   if (view === 'workers') renderWorkers();
-  if (view === 'absences') renderAbsenceWorkers();
+  if (view === 'absences') {
+    renderAbsenceWorkers();
+    renderAbsenceNotices();
+  }
   if (view === 'absence-summary') renderAbsenceReport();
   if (view === 'calendar') openFactoryCalendar();
   if (view === 'factory-hours') renderFactorySchedule();
@@ -567,6 +712,12 @@ function startPortalWatch() {
   loadedToday = today;
   stopPortal = cloud.watchPortal(account, today, (kind, value) => {
     if (session !== sessionVersion) return;
+    if (kind === 'workerProfile' && (!value || value.archivedAt || value.disabled || value.mustChangePassword)) {
+      leavePortal();
+      cloud.logout().catch(() => {});
+      setFormError('access-error', 'Tu acceso está suspendido. Consultá con Administración.');
+      return;
+    }
     const previous = portalState.get(kind);
     if (kind === 'attendance') {
       portalMarks.clear();
@@ -588,6 +739,14 @@ function startPortalWatch() {
       renderPlantNetwork();
       if (account.role === 'worker') refreshAttendanceView();
     }
+    if (kind === 'location' && !get('home').hidden) {
+      if (account.role === 'employer' && get('plant-location-form').hidden) {
+        fillPlantLocation();
+        get('plant-location-form').hidden = false;
+      }
+      renderPlantLocation();
+      refreshAttendanceView();
+    }
     if (['schedule', 'staffSchedules'].includes(kind)) {
       if (account.role === 'worker' && !get('home').hidden) renderWorkerAssignment();
       if (!get('factory-hours').hidden) renderFactorySchedule();
@@ -595,6 +754,11 @@ function startPortalWatch() {
     if (['staff', 'staffSchedules'].includes(kind) && !get('workers').hidden) renderWorkers();
     if (kind === 'staff' && !get('reports').hidden) openAttendanceReport();
     if (kind === 'staff' && !get('absences').hidden) renderAbsenceWorkers();
+    if (['staff', 'absenceNotices', 'absences'].includes(kind)) {
+      renderNotifications();
+      if (account.role === 'employer' && !get('absences').hidden) renderAbsenceNotices();
+    }
+    if (kind === 'absences' && account.role === 'employer' && !get('absences').hidden) renderAbsenceForm(false);
     if (['staff', 'absences'].includes(kind) && !get('absence-summary').hidden) renderAbsenceReport();
     if (kind === 'calendar' && !get('calendar').hidden) renderFactoryCalendar();
     if (kind === 'corrections') {
@@ -617,6 +781,13 @@ function startPortalWatch() {
 }
 
 function enterPortal(match) {
+  if (match.mustChangePassword) {
+    firstAccess = { uid: match.username, dni: match.dni, initialPassword: get('password').value };
+    get('access-form').reset();
+    showAccessActivation(true);
+    get('activate-access-submit').disabled = false;
+    return;
+  }
   account = { ...match, initials: match.name.trim().split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase(),
     detail: match.role === 'employer' ? 'Administración' : match.dni ? 'DNI ' + match.dni : 'Personal' };
   const employer = account.role === 'employer';
@@ -663,9 +834,11 @@ handleForm('access-form', 'access-error', async () => {
     else setFormError('access-error', 'La cuenta todavía no está habilitada. Consultá con Administración.');
   } catch (error) {
     const invalid = ['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email'];
-    setFormError('access-error', invalid.includes(error.code)
-      ? 'El usuario o la contraseña no coinciden.'
-      : 'No pudimos iniciar sesión. Revisá la conexión y volvé a intentar.');
+    const message = error.code === 'portal/worker-inactive'
+      ? 'Tu acceso está suspendido. Consultá con Administración.'
+      : invalid.includes(error.code) ? 'El usuario o la contraseña no coinciden.'
+        : 'No pudimos iniciar sesión. Revisá la conexión y volvé a intentar.';
+    setFormError('access-error', message);
   }
 });
 
@@ -683,47 +856,60 @@ async function bootPortal() {
     showAccessActivation(true);
   }
   try {
-    cloud = await import('./portal-firebase.js?v=portal-2');
+    cloud = await import('./portal-firebase.js?v=portal-7');
     if (activationCode) {
       get('activate-access-submit').disabled = false;
       return;
     }
     const match = await cloud.resume();
-    if (match) enterPortal(match);
-  } catch {
-    setFormError(activationCode ? 'activate-access-error' : 'access-error',
-      'No pudimos conectar con el portal. Volvé a abrir el enlace para reintentar.');
+    if (match?.mustChangePassword) await cloud.logout();
+    else if (match) enterPortal(match);
+  } catch (error) {
+    setFormError(activationCode ? 'activate-access-error' : 'access-error', error.code === 'portal/worker-inactive'
+      ? 'Tu acceso está suspendido. Consultá con Administración.'
+      : 'No pudimos conectar con el portal. Volvé a abrir el enlace para reintentar.');
   } finally {
     button.disabled = !cloud;
   }
 }
 
 let activationCode = '';
+let firstAccess;
 const resetRequests = new Map();
 
+function validNewPassword(password) {
+  return Array.from(password).length >= 8 && password.length <= 128 && /\p{Lu}/u.test(password) && /\d/.test(password);
+}
+
 function showAccessActivation(visible) {
+  get('activate-access-title').textContent = firstAccess ? 'Elegí tu nueva contraseña' : 'Reactivar mi acceso';
+  const dni = get('activate-access-dni');
+  dni.readOnly = Boolean(firstAccess);
+  dni.value = firstAccess?.dni ?? '';
   get('sign-in-content').hidden = visible;
   get('activate-access').hidden = !visible;
   get('access').setAttribute('aria-labelledby', visible ? 'activate-access-title' : 'access-title');
-  get(visible ? 'activate-access-dni' : 'username').focus();
+  get(visible ? firstAccess ? 'activate-access-password' : 'activate-access-dni' : 'username').focus();
 }
 
-get('activate-access-cancel').addEventListener('click', () => {
+get('activate-access-cancel').addEventListener('click', async () => {
+  if (firstAccess) await cloud.logout().catch(() => {});
+  firstAccess = undefined;
   activationCode = '';
   get('activate-access-form').reset();
   showAccessActivation(false);
 });
 
 handleForm('activate-access-form', 'activate-access-error', async () => {
-  if (!cloud || !activationCode) return;
+  if (!cloud || (!activationCode && !firstAccess)) return;
   const dni = get('activate-access-dni').value.trim().replaceAll('.', '');
   const password = get('activate-access-password').value;
   if (!/^[0-9]{7,8}$/.test(dni)) {
     setFormError('activate-access-error', 'Ingresá un DNI de 7 u 8 dígitos.');
     return;
   }
-  if (Array.from(password).length < 8 || password.length > 128 || !/\p{L}/u.test(password) || !/\d/.test(password)) {
-    setFormError('activate-access-error', 'Usá al menos 8 caracteres con letras y números.');
+  if (!validNewPassword(password)) {
+    setFormError('activate-access-error', 'Usá al menos 8 caracteres, con letras, números y una mayúscula.');
     return;
   }
   if (password !== get('activate-access-repeat').value) {
@@ -733,6 +919,20 @@ handleForm('activate-access-form', 'activate-access-error', async () => {
   const cancel = get('activate-access-cancel');
   cancel.disabled = true;
   try {
+    if (firstAccess) {
+      const match = await cloud.finishFirstAccess(firstAccess.uid, password, firstAccess.initialPassword);
+      if (match?.mustChangePassword) throw new Error('El cambio no se confirmó.');
+      firstAccess = undefined;
+      get('activate-access-form').reset();
+      showAccessActivation(false);
+      if (match) {
+        enterPortal(match);
+        showMessage('Contraseña guardada.');
+      } else {
+        setFormError('access-error', 'Tu acceso está suspendido. Consultá con Administración.');
+      }
+      return;
+    }
     if (!await cloud.activateAccess(dni, activationCode, password)) {
       setFormError('activate-access-error', 'El DNI no coincide con la cuenta del enlace.');
       return;
@@ -745,11 +945,72 @@ handleForm('activate-access-form', 'activate-access-error', async () => {
     showMessage('Acceso reactivado. Ingresá con tu nueva contraseña.');
   } catch (error) {
     const invalid = ['auth/expired-action-code', 'auth/invalid-action-code', 'auth/user-not-found'];
-    setFormError('activate-access-error', invalid.includes(error.code)
+    setFormError('activate-access-error', error.code === 'portal/same-password'
+      ? 'Elegí una contraseña distinta de la clave inicial.'
+      : error.code === 'auth/requires-recent-login' ? 'Volvé al ingreso, iniciá sesión y elegí la nueva clave.'
+      : invalid.includes(error.code)
       ? 'El enlace venció o ya fue usado. Pedile uno nuevo a Administración.'
       : 'No se pudo guardar la contraseña. Revisá la conexión y volvé a intentar.');
   } finally {
     cancel.disabled = false;
+  }
+});
+
+const changePasswordDialog = get('password-change-dialog');
+const changePasswordForm = get('password-change-form');
+const savePasswordChange = get('save-password-change');
+const cancelPasswordChange = get('cancel-password-change');
+
+get('open-password-change').addEventListener('click', () => {
+  if (account?.role !== 'worker' || changePasswordDialog.open || savePasswordChange.disabled) return;
+  changePasswordForm.reset();
+  setFormError('change-password-error');
+  changePasswordDialog.showModal();
+});
+cancelPasswordChange.addEventListener('click', () => changePasswordDialog.close());
+changePasswordDialog.addEventListener('cancel', (event) => {
+  if (savePasswordChange.disabled) event.preventDefault();
+});
+changePasswordDialog.addEventListener('close', () => {
+  changePasswordForm.reset();
+  setFormError('change-password-error');
+});
+
+handleForm('password-change-form', 'change-password-error', async () => {
+  if (account?.role !== 'worker' || !changePasswordDialog.open) return;
+  const current = get('change-password-current').value;
+  const next = get('change-password-new').value;
+  if (!validNewPassword(next)) {
+    setFormError('change-password-error', 'Usá al menos 8 caracteres, con letras, números y una mayúscula.');
+    return;
+  }
+  if (next === current || next !== get('change-password-repeat').value) {
+    setFormError('change-password-error', next === current
+      ? 'Elegí una contraseña distinta de la actual.'
+      : 'Las contraseñas nuevas no coinciden.');
+    return;
+  }
+  const session = sessionVersion;
+  cancelPasswordChange.disabled = true;
+  try {
+    await cloud.changePassword(account.username, current, next);
+    if (session !== sessionVersion) return;
+    changePasswordDialog.close();
+    showMessage('Contraseña actualizada. Usá la nueva la próxima vez que ingreses.');
+  } catch (error) {
+    if (session !== sessionVersion) return;
+    const messages = {
+      'auth/invalid-credential': 'La contraseña actual no coincide.',
+      'auth/wrong-password': 'La contraseña actual no coincide.',
+      'auth/invalid-login-credentials': 'La contraseña actual no coincide.',
+      'auth/requires-recent-login': 'Volvé a iniciar sesión y probá otra vez.',
+      'auth/too-many-requests': 'Hubo demasiados intentos. Esperá un momento y volvé a probar.',
+      'auth/network-request-failed': 'Se interrumpió la conexión. Si el cambio se guardó, usá la clave nueva al ingresar.',
+      'portal/worker-inactive': 'Tu acceso está suspendido. Consultá con Administración.',
+    };
+    setFormError('change-password-error', messages[error.code] ?? 'No pudimos cambiar la contraseña. Volvé a intentar.');
+  } finally {
+    cancelPasswordChange.disabled = false;
   }
 });
 
@@ -773,6 +1034,7 @@ function updateAccessReset(uid, entry, message) {
 get('reset-worker-access').addEventListener('click', async () => {
   const uid = scheduleEditorWorker?.id;
   if (!uid || account?.role !== 'employer' || !get('schedule-dialog').open || resetRequests.get(uid)?.pending) return;
+  if (!staffDirectory().some((worker) => worker.id === uid && worker.active && !worker.disabled)) return;
   const contact = (portalState.get('staffRecoveryContacts') ?? []).find((item) => item.id === uid)?.email ?? '';
   if (get('profile-recovery-email').value.trim() !== contact) {
     resetRequests.set(uid, { message: 'Guardá el correo de recuperación antes de reiniciar el acceso.' });
@@ -840,7 +1102,7 @@ get('copy-reset-worker-link').addEventListener('click', async () => {
 
 function renderWorkers() {
   const profiles = readReportSetting(workerProfilesKey, {});
-  const rows = staffDirectory().map((worker) => {
+  const rows = staffDirectory().filter((worker) => worker.active).map((worker) => {
     const row = document.createElement('li');
     row.className = 'worker-row';
     row.innerHTML = '<div><button type="button" class="worker-profile-link"><strong></strong><small></small></button></div><span class="team-status"></span>';
@@ -851,13 +1113,64 @@ function renderWorkers() {
     profile.setAttribute('aria-label', `Editar el perfil de ${worker.name}`);
     profile.setAttribute('aria-haspopup', 'dialog');
     const status = row.querySelector('.team-status');
-    status.dataset.state = worker.active ? 'open' : 'waiting';
-    status.textContent = 'Activa';
+    status.dataset.state = worker.disabled ? 'waiting' : 'open';
+    status.textContent = worker.disabled ? 'Desactivada' : 'Activa';
     profile.addEventListener('click', () => openScheduleEditor(worker, status.textContent));
     return row;
   });
   get('workers-list').replaceChildren(...rows);
 }
+
+get('toggle-worker-access').addEventListener('click', async () => {
+  const target = scheduleEditorWorker;
+  const dialog = get('schedule-dialog');
+  const button = get('toggle-worker-access');
+  if (account?.role !== 'employer' || !target || !dialog.open || button.disabled) return;
+  const worker = staffDirectory().find((item) => item.id === target.id && item.active);
+  if (!worker) return;
+  const disabled = !worker.disabled;
+  const action = disabled ? 'Desactivar' : 'Reactivar';
+  if (!window.confirm(`¿${action} el acceso de ${worker.name}?`)) return;
+  const session = sessionVersion;
+  button.disabled = true;
+  setFormError('archive-worker-error');
+  try {
+    await cloud.setWorkerDisabled(worker.id, disabled);
+    if (session !== sessionVersion) return;
+    if (scheduleEditorWorker === target) dialog.close();
+    showMessage(disabled ? 'Acceso desactivado.' : 'Acceso reactivado.');
+  } catch {
+    if (session === sessionVersion && scheduleEditorWorker === target) {
+      setFormError('archive-worker-error', 'No se pudo cambiar el acceso. Revisá la conexión.');
+    }
+  } finally {
+    button.disabled = false;
+  }
+});
+
+get('archive-worker').addEventListener('click', async () => {
+  const target = scheduleEditorWorker;
+  const dialog = get('schedule-dialog');
+  const button = get('archive-worker');
+  if (account?.role !== 'employer' || !target || !dialog.open || button.disabled) return;
+  if (!window.confirm(`¿Dar de baja a ${target.name}? Perderá el acceso al portal. Sus fichadas se conservarán.`)) return;
+
+  const session = sessionVersion;
+  button.disabled = true;
+  setFormError('archive-worker-error');
+  try {
+    await cloud.archiveWorker(target.id);
+    if (session !== sessionVersion) return;
+    if (scheduleEditorWorker === target) dialog.close();
+    showMessage(`${target.name} fue dado de baja.`);
+  } catch {
+    if (session === sessionVersion && scheduleEditorWorker === target) {
+      setFormError('archive-worker-error', 'No se pudo confirmar la baja. Revisá la conexión y volvé a intentar.');
+    }
+  } finally {
+    button.disabled = false;
+  }
+});
 
 handleForm('worker-form', 'worker-error', async () => {
   if (account?.role !== 'employer' || get('worker-add').hidden) return;
@@ -922,7 +1235,7 @@ function renderAbsenceWorkers(selectMatch = false) {
   const select = get('absence-worker');
   const selected = select.value;
   const query = get('absence-search').value.trim();
-  const staff = staffDirectory().filter((worker) => matchesWorker(worker, query));
+  const staff = staffDirectory().filter((worker) => worker.active && matchesWorker(worker, query));
   const placeholder = document.createElement('option');
   placeholder.value = '';
   placeholder.textContent = staff.length ? 'Seleccioná un empleado' : 'Sin coincidencias';
@@ -938,18 +1251,24 @@ function renderAbsenceWorkers(selectMatch = false) {
   if (select.value !== selected || !selectMatch) renderAbsenceForm();
 }
 
-function renderAbsenceForm() {
+function renderAbsenceForm(updateFields = true) {
   const workerId = get('absence-worker').value;
   const date = get('absence-date').value;
   const absences = readAbsences().filter((absence) => absence.workerId === workerId);
   const existing = absences.find((absence) => absence.date === date);
-  get('absence-reason').value = existing?.reason || '';
-  get('absence-note').value = existing?.note || '';
-  get('absence-certificate').checked = Boolean(existing?.certificate);
-  get('absence-save').textContent = existing ? 'Guardar cambios' : 'Guardar ausencia';
-  setFormError('absence-error');
+  if (updateFields !== false) {
+    get('absence-reason').value = existing?.reason || '';
+    get('absence-end').value = '';
+    get('absence-from-time').value = existing?.fromTime ?? '';
+    get('absence-to-time').value = existing?.toTime ?? '';
+    renderPermissionHours();
+    get('absence-note').value = existing?.note || '';
+    get('absence-certificate').checked = Boolean(existing?.certificate);
+    get('absence-save').textContent = existing ? 'Guardar cambios' : 'Guardar novedad';
+    setFormError('absence-error');
+  }
   const empty = get('absence-empty');
-  empty.textContent = workerId ? 'Esta persona todavía no tiene ausencias registradas.' : 'Seleccioná un empleado para consultar sus ausencias.';
+  empty.textContent = workerId ? 'Esta persona todavía no tiene novedades registradas.' : 'Seleccioná un empleado para consultar sus novedades.';
   empty.hidden = absences.length > 0;
   const rows = absences.sort((a, b) => b.date.localeCompare(a.date)).map((absence) => {
     const row = document.createElement('li');
@@ -960,12 +1279,13 @@ function renderAbsenceForm() {
     time.dateTime = absence.date;
     time.textContent = dateLabel;
     row.querySelector('strong').textContent = absenceReasons.get(absence.reason);
-    row.querySelector('small').textContent = absence.certificate ? 'Certificado presentado' : 'Sin certificado registrado';
+    row.querySelector('small').textContent = absence.fromTime ? `${absence.fromTime} a ${absence.toTime}`
+      : absence.certificate ? 'Certificado presentado' : '';
     const note = row.querySelector('p');
     note.textContent = absence.note;
     note.hidden = !absence.note;
     const edit = row.querySelector('button');
-    edit.setAttribute('aria-label', `Editar ausencia del ${dateLabel}`);
+    edit.setAttribute('aria-label', `Editar novedad del ${dateLabel}`);
     edit.addEventListener('click', () => {
       get('absence-date').value = absence.date;
       renderAbsenceForm();
@@ -1043,6 +1363,148 @@ get('absence-month').addEventListener('change', () => {
 get('absence-search').addEventListener('input', () => renderAbsenceWorkers(true));
 get('absence-worker').addEventListener('change', renderAbsenceForm);
 get('absence-date').addEventListener('change', renderAbsenceForm);
+get('absence-reason').addEventListener('change', renderPermissionHours);
+
+function renderPermissionHours() {
+  const hours = get('absence-permission-hours');
+  hours.disabled = hours.hidden = get('absence-reason').value !== 'permission';
+}
+
+const notificationsDialog = get('notifications-dialog');
+const absenceNoticeDialog = get('absence-notice-dialog');
+
+function noticeDate(date) {
+  return shortDateFormat.format(new Date(date + 'T12:00:00-03:00'));
+}
+
+function notificationItems() {
+  const notices = portalState.get('absenceNotices') ?? [];
+  if (account?.role === 'employer') {
+    const names = new Map(staffDirectory().map(({ id, name }) => [id, name]));
+    return notices.filter(({ status }) => status === 'pending').map((item) => ({
+      key: 'notice:' + item.id, date: item.date,
+      title: (names.get(item.workerId) ?? 'Empleado') + ' avisó una ausencia',
+    }));
+  }
+  return [
+    ...readAbsences().map((item) => ({
+      key: 'novelty:' + item.id + ':' + item.updatedAt?.toMillis(), date: item.date,
+      title: 'Novedad de Administración: ' + absenceReasons.get(item.reason),
+      detail: item.fromTime ? item.fromTime + ' a ' + item.toTime : '',
+    })),
+    ...notices.map((item) => ({
+      key: 'response:' + item.id + ':' + item.status, date: item.date,
+      title: { accepted: 'Aviso de ausencia registrado', rejected: 'Aviso de ausencia rechazado', pending: 'Aviso de ausencia pendiente' }[item.status],
+    })),
+  ];
+}
+
+function renderNotifications() {
+  const items = notificationItems().sort((a, b) => b.date.localeCompare(a.date));
+  if (notificationsDialog.open) items.forEach(({ key }) => seenNotifications.add(key));
+  const unread = items.filter(({ key }) => !seenNotifications.has(key)).length;
+  const count = get('notification-count');
+  count.hidden = unread === 0;
+  count.textContent = unread > 99 ? '99+' : String(unread);
+  get('open-notifications').setAttribute('aria-label', unread ? `Notificaciones: ${unread} nuevas` : 'Notificaciones');
+  get('notifications-empty').hidden = items.length > 0;
+  get('view-notice-inbox').hidden = account?.role !== 'employer';
+  get('notifications-list').replaceChildren(...items.map(({ title, date, detail }) => {
+    const row = document.createElement('li');
+    row.className = 'worker-row absence-row';
+    const copy = document.createElement('div');
+    const heading = document.createElement('strong');
+    heading.textContent = title;
+    const day = document.createElement('small');
+    day.textContent = [noticeDate(date), detail].filter(Boolean).join(' · ');
+    copy.append(heading, day);
+    row.append(copy);
+    return row;
+  }));
+}
+
+get('open-notifications').addEventListener('click', () => {
+  if (!account || notificationsDialog.open) return;
+  notificationsDialog.showModal();
+  renderNotifications();
+});
+get('close-notifications').addEventListener('click', () => notificationsDialog.close());
+get('view-notice-inbox').addEventListener('click', () => {
+  notificationsDialog.close();
+  showView('absences');
+});
+
+get('open-absence-notice').addEventListener('click', () => {
+  if (account?.role !== 'worker' || absenceNoticeDialog.open) return;
+  get('absence-notice-form').reset();
+  setFormError('absence-notice-error');
+  get('absence-notice-date').value = plantDay(new Date());
+  absenceNoticeDialog.showModal();
+});
+get('cancel-absence-notice').addEventListener('click', () => absenceNoticeDialog.close());
+handleForm('absence-notice-form', 'absence-notice-error', async () => {
+  if (account?.role !== 'worker' || !absenceNoticeDialog.open) return;
+  const date = get('absence-notice-date').value;
+  const reason = get('absence-notice-reason').value;
+  const note = get('absence-notice-note').value.trim();
+  const session = sessionVersion;
+  const sent = await cloud.sendAbsenceNotice(account.username, date, reason, note);
+  if (session !== sessionVersion) return;
+  if (!sent) {
+    setFormError('absence-notice-error', 'Ya enviaste un aviso para esa fecha.');
+    return;
+  }
+  absenceNoticeDialog.close();
+  showMessage('Aviso enviado a Administración.');
+});
+
+function renderAbsenceNotices() {
+  const pending = (portalState.get('absenceNotices') ?? []).filter((item) => item.status === 'pending')
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const staff = new Map(staffDirectory().map(({ id, name }) => [id, name]));
+  get('absence-notices-empty').hidden = pending.length > 0;
+  get('absence-notices-list').replaceChildren(...pending.map((item) => {
+    const row = document.createElement('li');
+    row.className = 'worker-row absence-row';
+    const copy = document.createElement('div');
+    const name = document.createElement('strong');
+    name.textContent = staff.get(item.workerId) ?? 'Empleado';
+    const description = document.createElement('small');
+    description.textContent = noticeDate(item.date) + ' · ' + absenceReasons.get(item.reason);
+    const note = document.createElement('p');
+    note.textContent = item.note;
+    copy.append(name, description, note);
+    const actions = document.createElement('div');
+    actions.className = 'section-links';
+    for (const [status, label] of [['accepted', 'Registrar'], ['rejected', 'Rechazar']]) {
+      const button = document.createElement('button');
+      button.className = 'report-button';
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', async () => {
+        if (account?.role !== 'employer') return;
+        if (status === 'rejected' && !window.confirm('¿Rechazar este aviso de ausencia?')) return;
+        const session = sessionVersion;
+        for (const control of actions.children) control.disabled = true;
+        try {
+          const result = await cloud.reviewAbsenceNotice(item, status);
+          if (session !== sessionVersion) return;
+          if (result === 'saved' && get('absence-worker').value === item.workerId && get('absence-date').value === item.date) {
+            renderAbsenceForm();
+          }
+          showMessage(result === 'reviewed' ? 'El aviso ya fue revisado.' : 'Aviso revisado. El empleado recibirá una notificación.');
+        } catch {
+          if (session === sessionVersion) showMessage('No se pudo revisar el aviso. Volvé a intentar.', true);
+        } finally {
+          for (const control of actions.children) control.disabled = false;
+        }
+      });
+      actions.append(button);
+    }
+    row.append(copy, actions);
+    return row;
+  }));
+}
 
 handleForm('absence-form', 'absence-error', async () => {
   if (account?.role !== 'employer' || get('absences').hidden) return;
@@ -1054,23 +1516,31 @@ handleForm('absence-form', 'absence-error', async () => {
     return;
   }
 
-  const absences = readAbsences();
-  const index = absences.findIndex((absence) => absence.workerId === workerId && absence.date === date);
-  const absence = { workerId, date, reason, note: get('absence-note').value.trim(), certificate: get('absence-certificate').checked };
-  if (index < 0) absences.push(absence);
-  else absences[index] = absence;
+  const dates = reportDates(date, get('absence-end').value || date);
+  if (!dates.length || dates.length > 90) {
+    setFormError('absence-error', 'Elegí un período válido de hasta 90 días.');
+    return;
+  }
+  const novelty = { reason, note: get('absence-note').value.trim(), certificate: get('absence-certificate').checked };
+  const fromTime = get('absence-from-time').value;
+  const toTime = get('absence-to-time').value;
+  if (reason === 'permission' && (fromTime || toTime)) {
+    if (!fromTime || !toTime || fromTime >= toTime) {
+      setFormError('absence-error', 'Completá el horario del permiso con un inicio y un fin posterior.');
+      return;
+    }
+    Object.assign(novelty, { fromTime, toTime });
+  }
+  const conflicts = readAbsences().some((item) => item.workerId === workerId && dates.includes(item.date));
+  if (dates.length > 1 && conflicts && !window.confirm('El período incluye novedades ya registradas. ¿Querés reemplazarlas?')) return;
   const session = sessionVersion;
-  await cloud.saveRecord('staffAbsences', workerId + '_' + date, absence);
+  await cloud.saveNovelties(workerId, dates, novelty);
   if (session !== sessionVersion) return;
-  portalState.set(absencesKey, absences);
-  renderAbsenceForm();
-  showMessage(index < 0 ? 'Ausencia registrada.' : 'Cambios guardados.');
+  if (!get('absences').hidden && get('absence-worker').value === workerId) renderAbsenceForm();
+  showMessage('Novedad guardada. El empleado podrá verla en su campana.');
 });
 
-get('sign-out').addEventListener('click', async () => {
-  if (!account) return;
-  try { await cloud.logout(); }
-  catch { showMessage('No pudimos cerrar la sesión. Volvé a intentar.', true); return; }
+function leavePortal() {
   sessionVersion++;
   stopPortal?.();
   stopPortal = undefined;
@@ -1083,6 +1553,12 @@ get('sign-out').addEventListener('click', async () => {
   marks = [];
   pendingPunch = undefined;
   if (punchDialog.open) punchDialog.close();
+  if (notificationsDialog.open) notificationsDialog.close();
+  if (absenceNoticeDialog.open) absenceNoticeDialog.close();
+  seenNotifications.clear();
+  get('notification-count').hidden = true;
+  if (changePasswordDialog.open) changePasswordDialog.close();
+  changePasswordForm.reset();
   for (const reset of resetRequests.values()) reset.stop?.();
   resetRequests.clear();
   renderAccessReset();
@@ -1106,6 +1582,13 @@ get('sign-out').addEventListener('click', async () => {
   get('access').hidden = false;
   get('access-title').focus({ preventScroll: true });
   window.scrollTo(0, 0);
+}
+
+get('sign-out').addEventListener('click', async () => {
+  if (!account) return;
+  try { await cloud.logout(); }
+  catch { showMessage('No pudimos cerrar la sesión. Volvé a intentar.', true); return; }
+  leavePortal();
 });
 
 get('team-date').addEventListener('change', () => {

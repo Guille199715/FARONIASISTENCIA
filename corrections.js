@@ -26,7 +26,8 @@ function correctionConflict(request, now = new Date()) {
   const records = marksOnDate(request.workerId, request.date);
   const index = records.findIndex((mark) => mark.at === request.previousAt && mark.type === request.type);
   if (request.previousAt && index < 0) return 'La fichada original cambió. Hacé una solicitud sobre el registro actual.';
-  if (!request.previousAt && records.some((mark) => mark.type === request.type)) {
+  if (!request.previousAt && records.length &&
+    (request.type === 'in' ? records[0].type === 'in' : records.at(-1).type === 'out')) {
     return 'Ya hay una fichada de ese tipo. Seleccioná la existente para corregirla.';
   }
   const corrected = { type: request.type, at: request.at };
