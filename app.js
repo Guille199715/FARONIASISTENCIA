@@ -15,6 +15,7 @@ const dayFormat = new Intl.DateTimeFormat('en-CA', {
 const get = (id) => document.getElementById(id);
 const punch = get('punch');
 const wifiToggle = get('wifi-toggle');
+const plantLocationToggle = get('plant-location-toggle');
 const viewButtons = document.querySelectorAll('[data-view]');
 const teamStatusButtons = document.querySelectorAll('[data-team-status]');
 const workerViews = ['home', 'profile'];
@@ -81,6 +82,30 @@ function setFormError(id, message = '') {
   const error = get(id);
   error.textContent = message;
   error.hidden = !message;
+}
+
+const actionConfirmation = get('action-confirmation');
+let confirmationPending = false;
+
+function confirmAction(title, message, label, destructive = false) {
+  if (confirmationPending) return Promise.resolve(false);
+  const session = sessionVersion;
+  get('action-confirmation-title').textContent = title;
+  const description = get('action-confirmation-message');
+  description.textContent = message;
+  description.hidden = !message;
+  const submit = get('action-confirmation-submit');
+  submit.textContent = label;
+  submit.classList.toggle('confirmation-danger', destructive);
+  actionConfirmation.returnValue = '';
+  actionConfirmation.showModal();
+  confirmationPending = true;
+  return new Promise((resolve) => {
+    actionConfirmation.addEventListener('close', () => {
+      confirmationPending = false;
+      resolve(actionConfirmation.returnValue === 'confirm' && session === sessionVersion);
+    }, { once: true });
+  });
 }
 
 function handleForm(id, errorId, action) {
@@ -282,23 +307,35 @@ function readPlantLocation() {
 function renderPlantLocation() {
   const geo = readPlantLocation().enabled;
   const network = readPlantNetwork().enabled;
+  plantLocationToggle.hidden = !onPlantSettings() || !portalState.has('location');
+  plantLocationToggle.setAttribute('aria-checked', String(geo === true));
   get('plant-location-status').textContent = !portalState.has('location') ? 'Cargando configuración…'
-    : geo ? 'Ubicación obligatoria al fichar' : 'Ubicación opcional desactivada';
+    : geo ? 'Ubicación obligatoria al fichar' : 'Fichaje sin restricción de ubicación';
   get('punch-note').textContent = geo && network ? 'Para fichar, conectate a la red de planta y permití usar tu ubicación.'
     : geo ? 'Para fichar, permití usar tu ubicación.'
     : network ? 'Conectate a la red de planta para fichar.' : 'Podés fichar desde cualquier conexión.';
 }
 
 function fillPlantLocation() {
-  const { enabled, latitude, longitude, radius } = readPlantLocation();
-  get('plant-location-enabled').checked = enabled;
+  const { latitude, longitude, radius } = readPlantLocation();
   get('plant-latitude').value = latitude ?? '';
   get('plant-longitude').value = longitude ?? '';
   get('plant-radius').value = radius;
   setFormError('plant-location-error');
 }
 
-function currentPosition() {
+async function currentPosition() {
+  const options = { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 };
+  if (window.Capacitor?.isNativePlatform()) {
+    try {
+      const { coords } = await window.Capacitor.Plugins.Geolocation.getCurrentPosition(options);
+      return coords;
+    } catch (error) {
+      throw new Error(error.code === 'OS-PLUG-GLOC-0003'
+        ? 'Permití el acceso a tu ubicación en los ajustes de Faroni.'
+        : 'No pudimos obtener tu ubicación. Activá la ubicación del dispositivo y volvé a intentar.');
+    }
+  }
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error('Este navegador no ofrece acceso a la ubicación.'));
@@ -307,7 +344,7 @@ function currentPosition() {
     navigator.geolocation.getCurrentPosition(({ coords }) => resolve(coords), (error) => {
       reject(new Error(error.code === 1 ? 'Permití el acceso a tu ubicación en el navegador.'
         : 'No pudimos obtener tu ubicación. Activá la ubicación del dispositivo y volvé a intentar.'));
-    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    }, options);
   });
 }
 
@@ -484,22 +521,62 @@ get('use-plant-location').addEventListener('click', async (event) => {
   }
 });
 
-handleForm('plant-location-form', 'plant-location-error', async () => {
-  if (!onPlantSettings() || !portalState.has('location')) return;
-  const enabled = get('plant-location-enabled').checked;
+function plantLocationFields() {
   const latitude = get('plant-latitude').value === '' ? null : get('plant-latitude').valueAsNumber;
   const longitude = get('plant-longitude').value === '' ? null : get('plant-longitude').valueAsNumber;
   const radius = get('plant-radius').valueAsNumber;
+  return { latitude, longitude, radius };
+}
+
+async function savePlantLocation(enabled, { latitude, longitude, radius }) {
+  setFormError('plant-location-error');
   const validCenter = Number.isFinite(latitude) && Math.abs(latitude) <= 90 &&
     Number.isFinite(longitude) && Math.abs(longitude) <= 180;
   if ((!validCenter && (enabled || latitude !== null || longitude !== null)) ||
     !Number.isInteger(radius) || radius < 50 || radius > 5000) {
     setFormError('plant-location-error', 'Ingresá coordenadas válidas y un radio de 50 a 5000 metros.');
-    return;
+    return false;
   }
   const session = sessionVersion;
-  await cloud.saveSetting('location', { enabled, latitude, longitude, radius });
-  if (session === sessionVersion && onPlantSettings()) showMessage('Configuración de ubicación guardada.');
+  const settings = { enabled, latitude, longitude, radius };
+  try {
+    await cloud.saveSetting('location', settings);
+  } catch {
+    if (session === sessionVersion && onPlantSettings()) setFormError('plant-location-error', 'No se pudo guardar la configuración de ubicación. Volvé a intentar.');
+    return false;
+  }
+  if (session !== sessionVersion) return false;
+  portalState.set('location', settings);
+  if (!onPlantSettings()) return false;
+  renderPlantLocation();
+  return true;
+}
+
+plantLocationToggle.addEventListener('click', async () => {
+  const submit = get('save-plant-location');
+  if (!onPlantSettings() || !portalState.has('location') || submit.disabled) return;
+  const settings = readPlantLocation();
+  const enabled = !settings.enabled;
+  plantLocationToggle.disabled = submit.disabled = true;
+  try {
+    if (await savePlantLocation(enabled, enabled ? plantLocationFields() : settings)) {
+      showMessage(enabled ? 'Control de ubicación activado.' : 'Control de ubicación desactivado.');
+    }
+  } finally {
+    plantLocationToggle.disabled = submit.disabled = false;
+  }
+});
+
+handleForm('plant-location-form', 'plant-location-error', async () => {
+  if (!onPlantSettings() || !portalState.has('location') || plantLocationToggle.disabled) return;
+  plantLocationToggle.disabled = true;
+  try {
+    if (await savePlantLocation(readPlantLocation().enabled, plantLocationFields())) {
+      showMessage('Configuración de ubicación guardada.');
+    }
+  } finally {
+    plantLocationToggle.disabled = false;
+  }
 });
 
 async function verifyPunchLocation() {
@@ -856,7 +933,7 @@ async function bootPortal() {
     showAccessActivation(true);
   }
   try {
-    cloud = await import('./portal-firebase.js?v=portal-7');
+    cloud = await import('./portal-firebase.js?v=sesion-1');
     if (activationCode) {
       get('activate-access-submit').disabled = false;
       return;
@@ -1041,7 +1118,7 @@ get('reset-worker-access').addEventListener('click', async () => {
     renderAccessReset(uid);
     return;
   }
-  if (!window.confirm('¿Reiniciar el acceso? La contraseña actual dejará de funcionar.')) return;
+  if (!await confirmAction('¿Reiniciar el acceso?', 'La contraseña actual dejará de funcionar.', 'Reiniciar acceso', true)) return;
   const entry = { pending: true, requestId: crypto.randomUUID() };
   resetRequests.set(uid, entry);
   updateAccessReset(uid, entry, 'Solicitando reinicio…');
@@ -1130,7 +1207,8 @@ get('toggle-worker-access').addEventListener('click', async () => {
   if (!worker) return;
   const disabled = !worker.disabled;
   const action = disabled ? 'Desactivar' : 'Reactivar';
-  if (!window.confirm(`¿${action} el acceso de ${worker.name}?`)) return;
+  const message = disabled ? 'El empleado perderá el acceso hasta que lo reactives.' : 'El empleado podrá volver a iniciar sesión.';
+  if (!await confirmAction(`¿${action} el acceso de ${worker.name}?`, message, `${action} acceso`, disabled)) return;
   const session = sessionVersion;
   button.disabled = true;
   setFormError('archive-worker-error');
@@ -1153,7 +1231,7 @@ get('archive-worker').addEventListener('click', async () => {
   const dialog = get('schedule-dialog');
   const button = get('archive-worker');
   if (account?.role !== 'employer' || !target || !dialog.open || button.disabled) return;
-  if (!window.confirm(`¿Dar de baja a ${target.name}? Perderá el acceso al portal. Sus fichadas se conservarán.`)) return;
+  if (!await confirmAction(`¿Dar de baja a ${target.name}?`, 'Perderá el acceso al portal. Sus fichadas se conservarán.', 'Dar de baja', true)) return;
 
   const session = sessionVersion;
   button.disabled = true;
@@ -1483,7 +1561,7 @@ function renderAbsenceNotices() {
       button.textContent = label;
       button.addEventListener('click', async () => {
         if (account?.role !== 'employer') return;
-        if (status === 'rejected' && !window.confirm('¿Rechazar este aviso de ausencia?')) return;
+        if (status === 'rejected' && !await confirmAction('¿Rechazar este aviso de ausencia?', '', 'Rechazar aviso', true)) return;
         const session = sessionVersion;
         for (const control of actions.children) control.disabled = true;
         try {
@@ -1532,7 +1610,7 @@ handleForm('absence-form', 'absence-error', async () => {
     Object.assign(novelty, { fromTime, toTime });
   }
   const conflicts = readAbsences().some((item) => item.workerId === workerId && dates.includes(item.date));
-  if (dates.length > 1 && conflicts && !window.confirm('El período incluye novedades ya registradas. ¿Querés reemplazarlas?')) return;
+  if (dates.length > 1 && conflicts && !await confirmAction('¿Reemplazar las novedades?', 'El período incluye novedades ya registradas.', 'Reemplazar', true)) return;
   const session = sessionVersion;
   await cloud.saveNovelties(workerId, dates, novelty);
   if (session !== sessionVersion) return;
@@ -1542,6 +1620,7 @@ handleForm('absence-form', 'absence-error', async () => {
 
 function leavePortal() {
   sessionVersion++;
+  if (actionConfirmation.open) actionConfirmation.close('cancel');
   stopPortal?.();
   stopPortal = undefined;
   portalState.clear();

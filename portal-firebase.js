@@ -1,6 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
 import {
-  browserSessionPersistence, confirmPasswordReset, createUserWithEmailAndPassword, EmailAuthProvider, getAuth,
+  browserLocalPersistence, browserSessionPersistence, confirmPasswordReset, createUserWithEmailAndPassword, EmailAuthProvider, getAuth,
   initializeAuth, inMemoryPersistence, reauthenticateWithCredential, sendPasswordResetEmail, setPersistence,
   signInWithEmailAndPassword, signOut, updatePassword, verifyPasswordResetCode,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
@@ -13,7 +13,8 @@ import { firebaseConfig } from './firebase-web-config.js';
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const ready = setPersistence(auth, browserSessionPersistence);
+const ready = setPersistence(auth, window.Capacitor?.isNativePlatform()
+  ? browserLocalPersistence : browserSessionPersistence);
 let setupAuth;
 
 const workerEmail = (dni) => `${dni}@personal.asistencia-faroni.web.app`;

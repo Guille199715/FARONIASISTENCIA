@@ -135,6 +135,33 @@ main { max-width: 1210px; margin-inline: auto; padding: 34px clamp(24px, 4vw, 58
 .punch-dialog p { margin-top: 8px; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .punch-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .punch-dialog-actions .punch { width: auto; min-height: 44px; }
+.punch-dialog-actions .confirmation-danger { background: #a12135; color: #fff; }
+.punch-dialog-actions .confirmation-danger:hover { background: #831b2b; }
+
+#action-confirmation h2 { overflow-wrap: anywhere; }
+
+@supports (appearance: base-select) and selector(select::picker(select)) {
+  select, select::picker(select) { appearance: base-select; }
+  select::picker(select) {
+    max-height: min(50dvh, 26rem);
+    padding: 4px;
+    border: 1px solid #c8cdd5;
+    border-radius: 10px;
+    background: #fff;
+    color: #1b2028;
+    box-shadow: 0 8px 24px #10182030;
+  }
+  select::picker-icon { color: var(--muted); }
+  select option {
+    min-height: 44px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  select option:checked { background: #fff2d6; font-weight: 700; }
+  select option:is(:hover, :focus-visible) { background: #edf4fb; }
+}
 
 .access { display: grid; grid-template-columns: 1fr 1fr; max-width: 890px; padding: 0; margin: clamp(24px, 11vh, 105px) auto 24px; width: calc(100% - 32px); border: 1px solid var(--line); border-radius: 22px; overflow: hidden; background: #fff; }
 .access-brand, .access-content { padding: clamp(24px, 5vw, 48px); }

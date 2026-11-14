@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#16191e">
   <title>Asistencia | Metalúrgica Tecnológica Faroni</title>
   <link rel="icon" href="assets/faroni.jpg">
-  <link rel="stylesheet" href="styles.css?v=informes-1">
-  <script src="app.js?v=portal-7" defer></script>
+  <link rel="stylesheet" href="styles.css?v=dialogos-1">
+  <script src="app.js?v=sesion-ubicacion-1" defer></script>
   <script src="xlsx.js" defer></script>
-  <script src="reports.js?v=informes-1" defer></script>
+  <script src="reports.js?v=dialogos-1" defer></script>
   <script src="corrections.js?v=portal-7" defer></script>
 </head>
 <body>
@@ -128,10 +128,10 @@
                 <div class="plant-network-actions"><button id="use-plant-ip" class="report-button" type="button">Usar IP actual</button><button class="punch" type="submit">Guardar IP</button></div>
               </form>
               <div class="switch-row">
-                <div><strong>Ubicación de planta</strong><p id="plant-location-status" class="field-hint" role="status">Cargando configuración…</p></div>
+                <div><strong id="plant-location-label">Exigir ubicación de planta</strong><p id="plant-location-status" class="field-hint" role="status">Cargando configuración…</p></div>
+                <button type="button" id="plant-location-toggle" class="switch" role="switch" aria-checked="false" aria-labelledby="plant-location-label" aria-describedby="plant-location-status" hidden><span></span></button>
               </div>
               <form id="plant-location-form" class="entry-form" hidden>
-                <label><input id="plant-location-enabled" type="checkbox"> Exigir ubicación de planta</label>
                 <label for="plant-latitude">Latitud</label>
                 <input id="plant-latitude" type="number" step="any" min="-90" max="90" inputmode="decimal">
                 <label for="plant-longitude">Longitud</label>
@@ -139,7 +139,7 @@
                 <label for="plant-radius">Radio permitido (metros)</label>
                 <input id="plant-radius" type="number" min="50" max="5000" step="1" inputmode="numeric" value="200" required>
                 <p id="plant-location-error" class="form-error" role="alert" hidden></p>
-                <div class="plant-network-actions"><button id="use-plant-location" class="report-button" type="button">Usar mi ubicación</button><button class="punch" type="submit">Guardar ubicación</button></div>
+                <div class="plant-network-actions"><button id="use-plant-location" class="report-button" type="button">Usar mi ubicación</button><button id="save-plant-location" class="punch" type="submit">Guardar ubicación</button></div>
               </form>
             </section>
 
@@ -404,6 +404,16 @@
       <div class="punch-dialog-actions">
         <button type="button" id="cancel-punch" class="report-button" autofocus>Cancelar</button>
         <button type="submit" id="confirm-punch" class="punch"></button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="action-confirmation" class="punch-dialog" aria-labelledby="action-confirmation-title" aria-describedby="action-confirmation-message">
+    <form method="dialog">
+      <h2 id="action-confirmation-title"></h2>
+      <p id="action-confirmation-message"></p>
+      <div class="punch-dialog-actions">
+        <button type="submit" value="cancel" class="report-button" autofocus>Cancelar</button>
+        <button type="submit" value="confirm" id="action-confirmation-submit" class="punch"></button>
       </div>
     </form>
   </dialog>

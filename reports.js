@@ -455,7 +455,7 @@ function closureRow(closure, editable) {
     remove.className = 'history-link';
     remove.textContent = 'Quitar';
     remove.addEventListener('click', async () => {
-      if (account?.role !== 'employer' || !window.confirm('¿Quitar este registro del calendario de fábrica?')) return;
+      if (account?.role !== 'employer' || !await confirmAction('¿Quitar este registro?', 'Se quitará del calendario de fábrica.', 'Quitar registro', true)) return;
       try {
         const calendar = readReportSetting(factoryCalendarKey, []);
         const session = sessionVersion;
